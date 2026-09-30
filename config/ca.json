@@ -1,0 +1,64 @@
+{
+  "root": "/home/step/certs/root_ca.crt",
+  "federateRoots": [],
+  "crt": "/home/step/certs/intermediate_ca.crt",
+  "key": "/home/step/secrets/intermediate_ca_key",
+  "address": ":9000",
+  "dnsNames": [
+    "localhost",
+    "ca.rajlabs.local",
+    "step-ca"
+  ],
+  "logger": {
+    "format": "text"
+  },
+  "db": {
+    "type": "badger",
+    "dataSource": "/home/step/db"
+  },
+  "authority": {
+    "provisioners": [
+      {
+        "type": "ACME",
+        "name": "acme",
+        "challenges": [
+          "http-01",
+          "dns-01",
+          "tls-alpn-01"
+        ],
+        "claims": {
+          "minTLSCertDuration": "24h",
+          "maxTLSCertDuration": "2160h",
+          "defaultTLSCertDuration": "2160h"
+        }
+      },
+      {
+        "type": "JWK",
+        "name": "admin",
+        "key": {
+          "use": "sig",
+          "kty": "EC",
+          "kid": "admin-provisioner",
+          "crv": "P-256",
+          "alg": "ES256",
+          "x": "cK5-4-972ZkZ8pX_Wz4_12bE6gS9V_kP4R-tA3W5C30",
+          "y": "8f8oX5ZtT43m42_eJk_s_u2Ww2K7g8P4Q5R6S7T8U9V"
+        }
+      }
+    ],
+    "template": {},
+    "backdate": "1m0s"
+  },
+  "tls": {
+    "cipherSuites": [
+      "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+      "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+      "TLS_AES_128_GCM_SHA256",
+      "TLS_AES_256_GCM_SHA384",
+      "TLS_CHACHA20_POLY1305_SHA256"
+    ],
+    "minVersion": 1.2,
+    "maxVersion": 1.3,
+    "renegotiation": false
+  }
+}

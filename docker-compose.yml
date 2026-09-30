@@ -1,0 +1,50 @@
+services:
+  # -------------------------------------------------------------
+  # 1. Step-CA : Production-grade ACME, SCEP & REST CA Server
+  #    Running with Intermediate CA only (Root CA strictly isolated)
+  # -------------------------------------------------------------
+  step-ca:
+    image: smallstep/step-ca:latest
+    container_name: rajlabs-step-ca
+    restart: unless-stopped
+    ports:
+      - "${STEP_CA_PORT:-9000}:9000"
+    environment:
+      - DOCKER_STEPCA_INIT_NAME=${CA_NAME:-Rajlabs Intermediate CA}
+      - DOCKER_STEPCA_INIT_DNS_NAMES=${DNS_NAMES:-localhost,ca.rajlabs.local}
+      - DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT=true
+    volumes:
+      # Step-CA internal database and configs
+      - ./data/step-ca:/home/step
+      # Intermediate keys mounted read-only from host (ROOT CA IS NEVER MOUNTED)
+      - ./mounted-ca/certs/int-server.cert.pem:/home/step/certs/intermediate_ca.crt:ro
+      - ./mounted-ca/private/int-server.key.pem:/home/step/secrets/intermediate_ca_key:ro
+      - ./mounted-ca/certs/root-ca.cert.pem:/home/step/certs/root_ca.crt:ro
+      - ./config/ca.json:/home/step/config/ca.json:ro
+      - ./config/defaults.json:/home/step/config/defaults.json:ro
+      - ./secrets/password.txt:/home/step/secrets/password:ro
+    networks:
+      - rajlabs-pki-net
+
+  # -------------------------------------------------------------
+  # 2. CRL & Public Certificate Distribution Service (NGINX)
+  #    Serves:
+  #    - http://crl.rajlabs.local/crl/root-ca.crl
+  #    - http://crl.rajlabs.local/crl/int-server.crl
+  #    - http://crl.rajlabs.local/certs/ca-chain.cert.pem
+  # -------------------------------------------------------------
+  crl-distribution:
+    image: nginx:alpine
+    container_name: rajlabs-crl-server
+    restart: unless-stopped
+    ports:
+      - "${CRL_PORT:-8080}:80"
+    volumes:
+      - ./crl-web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./crl-web/public:/usr/share/nginx/html:ro
+    networks:
+      - rajlabs-pki-net
+
+networks:
+  rajlabs-pki-net:
+    driver: bridge

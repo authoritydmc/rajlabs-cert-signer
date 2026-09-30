@@ -1,0 +1,12 @@
+# Git ignore
+.env
+data/
+*.key
+*.key.pem
+!templates/**
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
