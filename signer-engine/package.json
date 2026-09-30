@@ -1,0 +1,13 @@
+{
+  "name": "rajlabs-cert-signer-engine",
+  "version": "1.0.0",
+  "description": "Enterprise ACME & REST PKI Certificate Signing Authority with CRL and Intermediate CA isolation",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "uuid": "^10.0.0"
+  }
+}

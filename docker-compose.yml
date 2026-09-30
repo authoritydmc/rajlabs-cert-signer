@@ -1,41 +1,44 @@
 services:
   # -------------------------------------------------------------
-  # 1. Step-CA : Production-grade ACME, SCEP & REST CA Server
-  #    Running with Intermediate CA only (Root CA strictly isolated)
+  # 1. Custom PKI Certificate Signer Engine (ACME & REST API)
+  #    Signs end-entity certificates strictly with the Intermediate CA
+  #    Root CA private key is never imported or mounted!
   # -------------------------------------------------------------
-  step-ca:
-    image: smallstep/step-ca:latest
-    container_name: rajlabs-step-ca
+  cert-signer:
+    build:
+      context: ./signer-engine
+      dockerfile: Dockerfile
+    container_name: rajlabs-cert-signer
     restart: unless-stopped
     ports:
-      - "${STEP_CA_PORT:-9000}:9000"
+      - "${SIGNER_PORT:-9000}:9000"
     environment:
-      - DOCKER_STEPCA_INIT_NAME=${CA_NAME:-Rajlabs Intermediate CA}
-      - DOCKER_STEPCA_INIT_DNS_NAMES=${DNS_NAMES:-localhost,ca.rajlabs.local}
-      - DOCKER_STEPCA_INIT_REMOTE_MANAGEMENT=true
+      - PORT=9000
+      - BASE_URL=${SIGNER_BASE_URL:-https://localhost:9000}
+      - CA_NAME=${CA_INTERMEDIATE_NAME:-int-server}
+      - DAYS_VALID=${DAYS_VALID:-90}
+      - AUTH_TOKEN=${AUTH_TOKEN:-rajlabs-secure-api-key-9988}
+      - CRL_OUTPUT_PATH=/crl-public/crl
     volumes:
-      # Step-CA internal database and configs
-      - ./data/step-ca:/home/step
-      # Intermediate keys mounted read-only from host (ROOT CA IS NEVER MOUNTED)
-      - ./mounted-ca/certs/int-server.cert.pem:/home/step/certs/intermediate_ca.crt:ro
-      - ./mounted-ca/private/int-server.key.pem:/home/step/secrets/intermediate_ca_key:ro
-      - ./mounted-ca/certs/root-ca.cert.pem:/home/step/certs/root_ca.crt:ro
-      - ./config/ca.json:/home/step/config/ca.json:ro
-      - ./config/defaults.json:/home/step/config/defaults.json:ro
-      - ./secrets/password.txt:/home/step/secrets/password:ro
+      # Intermediate keys mounted read-only from host (ROOT CA PRIVATE KEY IS NEVER MOUNTED)
+      - ./mounted-ca/certs:/app/ca-certs:ro
+      - ./mounted-ca/private:/app/ca-keys:ro
+      # Storage for issued certs, database, and accounts
+      - ./data/signer-db:/app/data
+      # Shared volume with CRL distributor
+      - ./crl-web/public/crl:/crl-public/crl
     networks:
       - rajlabs-pki-net
 
   # -------------------------------------------------------------
-  # 2. CRL & Public Certificate Distribution Service (NGINX)
+  # 2. CRL & Public Chain Distribution Service (NGINX)
   #    Serves:
-  #    - http://crl.rajlabs.local/crl/root-ca.crl
-  #    - http://crl.rajlabs.local/crl/int-server.crl
-  #    - http://crl.rajlabs.local/certs/ca-chain.cert.pem
+  #    - http://<host>:8080/crl/
+  #    - http://<host>:8080/certs/
   # -------------------------------------------------------------
   crl-distribution:
     image: nginx:alpine
-    container_name: rajlabs-crl-server
+    container_name: rajlabs-crl-distribution
     restart: unless-stopped
     ports:
       - "${CRL_PORT:-8080}:80"

@@ -1,5 +1,0 @@
-{
-  "ca-url": "https://localhost:9000",
-  "issuer": "Rajlabs Server Intermediate CA",
-  "root": "/home/step/certs/root_ca.crt"
-}

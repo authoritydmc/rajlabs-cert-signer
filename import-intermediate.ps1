@@ -26,7 +26,7 @@ $mountedKeys  = "$mountedCaDir\private"
 $crlPublic    = "$scriptDir\crl-web\public"
 
 # Ensure target directories exist
-@($mountedCerts, $mountedKeys, "$crlPublic\crl", "$crlPublic\certs", "$scriptDir\secrets", "$scriptDir\data") | ForEach-Object {
+@($mountedCerts, $mountedKeys, "$crlPublic\crl", "$crlPublic\certs", "$scriptDir\data") | ForEach-Object {
     if (-not (Test-Path $_)) { New-Item -ItemType Directory -Path $_ -Force | Out-Null }
 }
 
@@ -59,22 +59,15 @@ if (Test-Path $srcChain) {
     Copy-Item -Path $srcChain -Destination "$crlPublic\certs\ca-chain.crt" -Force
 }
 
-# 4. Copy CRLs if available
+# 4. Copy Root CRL if available
 $srcRootCrl = "$sourceBase\root-ca\crl\root-ca.crl.pem"
 if (Test-Path $srcRootCrl) {
     Copy-Item -Path $srcRootCrl -Destination "$crlPublic\crl\root-ca.crl" -Force
     Write-Host "[OK] Root CA CRL published to web distribution folder." -ForegroundColor Green
 }
 
-# 5. Ensure password secret exists for Step-CA
-$passFile = "$scriptDir\secrets\password.txt"
-if (-not (Test-Path $passFile)) {
-    "rajlabs-internal-pki-secret-passphrase" | Set-Content -Path $passFile -NoNewline
-    Write-Host "[OK] Generated step-ca passphrase in secrets/password.txt" -ForegroundColor Green
-}
-
 Write-Host "`nEnvironment preparation completed successfully!" -ForegroundColor Green
 Write-Host "Next steps:"
 Write-Host "  1. Start services:  docker compose up -d"
-Write-Host "  2. ACME Endpoint:   https://localhost:9000/acme/acme/directory"
+Write-Host "  2. ACME Directory:  http://localhost:9000/acme/directory"
 Write-Host "  3. CRL Endpoint:    http://localhost:8080/crl/"
