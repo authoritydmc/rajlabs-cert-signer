@@ -74,3 +74,22 @@ curl -X POST http://localhost:9000/api/v1/sign \
     "days": 90
   }'
 ```
+
+---
+
+## 🖥️ 1-Line Client Device Trust Installation
+
+Because end certificates do not contain the entire root hierarchy, client devices need the CA chain installed in their system stores. We provide automated 1-line installation scripts:
+
+### Windows (PowerShell as Admin):
+Installs the Root CA to `LocalMachine\Root` and Intermediate CA to `LocalMachine\CA`:
+```powershell
+irm http://<ca-server>:8080/install-trust-windows.ps1 | iex
+```
+
+### Linux (Ubuntu / Debian / CentOS / Rocky / Alpine):
+Installs both Root and Intermediate CAs to system stores (`update-ca-certificates` / `update-ca-trust`):
+```bash
+curl -fsSL http://<ca-server>:8080/install-trust-linux.sh | sudo bash
+```
+Once run, all browsers (Chrome, Edge), `curl`, Docker, Git, and system services on the client device will trust every issued certificate with zero warnings!
