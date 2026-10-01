@@ -1,24 +1,45 @@
 # Enterprise PKI Certificate Signer & Dashboard
 
-A containerized, **UI-based Certificate Authority & ACME Signer** designed for enterprise environments, **Coolify**, and Docker deployments.
+A containerized, **UI-based Certificate Authority, ACME Signer, and Certificate Inspector** designed for modern infrastructure, **Coolify**, and Docker deployments.
+
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-06b6d4?style=flat&logo=github)](https://authoritydmc.github.io/rajlabs-cert-signer/)
+[![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker)](Dockerfile)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
-## 🛡️ Zero-Trust Security Architecture: Air-Gapped Root CA Isolation
+## 📑 Table of Contents
+1. [Zero-Trust Security Architecture](#-zero-trust-security-architecture)
+2. [Quick Reference for AI Agents & Developers](#-quick-reference-for-ai-agents--developers)
+3. [Key Features](#-key-features)
+4. [Onboarding & Setup Modes](#-onboarding--setup-modes)
+   - [Mode A: 1-Click Automated In-Browser Setup](#mode-a-1-click-automated-in-browser-setup)
+   - [Mode B: Offline Air-Gapped Scripts](#mode-b-mode-b-offline-air-gapped-scripts)
+5. [Docker & Coolify Deployment Guide](#-docker--coolify-deployment-guide)
+6. [REST API Specification](#-rest-api-specification)
+7. [Automated ACME RFC 8555 Setup (Certbot, Traefik, Caddy)](#-automated-acme-rfc-8555-setup)
+8. [Certificate & CSR Inspector Tool](#-certificate--csr-inspector-tool)
+9. [1-Line Client Device Trust Installers](#-1-line-client-device-trust-installers)
+10. [Database Schema & Encryption at Rest](#-database-schema--encryption-at-rest)
 
-This solution enforces the gold standard in Zero-Trust PKI:
+---
+
+## 🛡️ Zero-Trust Security Architecture
+
+This system enforces strict Zero-Trust PKI principles:
 - **Root CA Private Key is NEVER loaded into Docker, Coolify, or this repository.**
-- Your Root CA stays completely **offline** (e.g. in a cold-storage encrypted vault or offline computer).
-- The web UI lets administrators import **Intermediate CAs** (`int-server`, `int-wifi`, `int-iot`), whose private keys are **encrypted at rest using AES-256-GCM**.
+- Your Root CA stays completely **offline** in cold storage (hardware vault, offline USB, or physical safe).
+- Intermediate CAs (`int-server`, `int-wifi`, `int-iot`) perform all signing operations. Their private keys are stored **encrypted at rest using AES-256-GCM**.
 - Leaf certificates, ACME clients (Certbot, Traefik), and microservices are signed strictly by the active intermediate CA.
 
 ```
-[ Air-Gapped Offline Root CA ] (Kept in physical vault / offline machine)
-            │
-            ▼ (Signed offline once every 5–10 years)
-[ Intermediate CA (Server / WiFi / IoT) ]
-            │
-            ▼ (Imported via Admin Web UI)
+┌─────────────────────────────────────────────────────────────────┐
+│        AIR-GAPPED OFFLINE ROOT CA (Physical Vault / USB)        │
+│  - 4096-bit RSA / 20-Year Lifetime                              │
+│  - Never touches the container filesystem                       │
+└────────────────────────────────┬────────────────────────────────┘
+                                 │ Signed once every 5–10 years
+                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │              Enterprise Cert Signer Container (Coolify)         │
 │                                                                 │
@@ -26,114 +47,330 @@ This solution enforces the gold standard in Zero-Trust PKI:
 │  │ Web Admin UI (:9000)  │   │  ACME & REST Engine (:9000)   │  │
 │  │ ├─ AES-256 DB Vault   │   │  ├─ RFC 8555 /acme/directory  │  │
 │  │ ├─ Token Management   │   │  ├─ POST /api/v1/sign         │  │
-│  │ ├─ 1-Click Cert Issue │   │  ├─ Full CA Chain Bundler     │  │
-│  │ └─ Postgres / Embedded│   │  └─ Auto-Generated CRLs       │  │
+│  │ ├─ Cert/CSR Inspector │   │  ├─ Full CA Chain Bundler     │  │
+│  │ └─ SQLite / Postgres  │   │  └─ Real-Time PKIX CRL Engine │  │
 │  └───────────────────────┘   └───────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## ✨ Features
+## 🤖 Quick Reference for AI Agents & Developers
 
-- 🖥️ **Full Web UI Dashboard**: Manage multiple intermediate CAs, issue leaf certificates, and view certificate histories.
-- 🔐 **Dual Authentication Modes**:
-  - Provide your own custom password via the `ADMIN_PASSWORD` environment variable (ideal for Docker / Coolify).
-  - Or let the container auto-generate a secure random password on first run and display it on-screen and in `/app/data/admin_credentials.txt`.
-- 🗄️ **Zero-Config Inbuilt SQLite Database**: By default, uses native SQLite (`pki_vault.sqlite`) stored in your persistent `/app/data` volume. Seamlessly switches to external **PostgreSQL** if `DATABASE_URL` is configured.
-- 🔑 **API Token System**: Create and revoke scoped API keys directly in the UI for automated ACME clients, CI/CD pipelines, and microservices.
-- 📜 **Automatic Full-Chain Bundling**: End devices never suffer from "missing intermediate chain" errors because the engine automatically concatenates the leaf + intermediate + root public certificates.
-- 💻 **1-Command Client Trust Installers**:
-  - **Windows (PowerShell as Admin)**: `irm http://<host>:9000/install-trust-windows.ps1 | iex`
-  - **Linux (Bash)**: `curl -fsSL http://<host>:9000/install-trust-linux.sh | sudo bash`
+If you are an AI assistant, automation bot, or developer integrating with this repository, keep these rules and endpoints in mind:
+
+- **Signer Engine Location**: `/signer-engine` (Node.js native backend + OpenSSL engine).
+- **Default Port**: `9000` (HTTP).
+- **Default Database**: SQLite at `/app/data/pki_vault.sqlite`. Seamlessly switches to PostgreSQL if `DATABASE_URL` is set.
+- **Admin Password Configuration**:
+  - Set via env: `ADMIN_PASSWORD=YourStrongPasswordHere` (recommended for headless deployments).
+  - If unset, a random password is generated and saved to `/app/data/admin_credentials.txt`.
+- **API Token Header**: Pass API tokens using `x-api-key: <token>` or `Authorization: Bearer <token>`.
+- **Root Key Sanitization**: Never write or commit any `.key` or `.key.pem` files.
+- **Safety Overwrites**: Offline scripts require `-ForceOverwrite` or `--force-overwrite` to overwrite existing Root CAs.
 
 ---
 
-## ⚡ 1-Command Helper Scripts (Generate Root & Intermediate CAs)
+## ✨ Key Features
 
-We provide automated helper scripts that handle all OpenSSL commands, directory packaging, and security boundaries:
+- 🖥️ **Tailwind Modern Web UI**: Responsive dark-mode dashboard with real-time stats, intermediate CA management, certificate viewer, and tutorials.
+- ⚡ **1-Click Onboarding Generator**: Issue both Root CA and Intermediate CA directly in memory on first boot without command-line dependencies.
+- 🔍 **Interactive Certificate & CSR Inspector**: Drag & drop or paste any PEM/CRT/CSR file to view Subject, Issuer, SAN badges, validity meters, key usage, and raw dumps.
+- 🗄️ **Zero-Config Dual-Database Engine**:
+  - Built-in SQLite database requiring zero setup.
+  - Full PostgreSQL support for high-availability enterprise clusters via `DATABASE_URL`.
+- 🔑 **API Token Management**: Provision scoped API keys with 1 click for CI/CD pipelines, Kubernetes cert-manager, or Traefik.
+- 📜 **Automated Full-Chain Assembly**: Emits `ca-chain.crt` bundling `[Leaf + Intermediate + Root]` to eliminate client-side `SEC_ERROR_UNKNOWN_ISSUER` errors.
+- 🔄 **Real-Time CRL Generation**: Automated `openssl ca -gencrl` on revocations, served with standard `application/pkix-crl` headers at `/crl/<ca-name>.crl`.
 
-### On Windows (PowerShell):
-```powershell
-.\scripts\generate-offline-ca.ps1 -OrgName "MyCompany" -IntermediateName "int-server"
-```
+---
 
-### On Linux / macOS (Bash):
-```bash
-chmod +x ./scripts/generate-offline-ca.sh
-./scripts/generate-offline-ca.sh "MyCompany" "US" "California" "San Francisco" "int-server"
-```
+## 🚀 Onboarding & Setup Modes
 
-### 📦 What the script produces:
+### Mode A: 1-Click Automated In-Browser Setup
 
-| Folder | Contents | Action |
+Ideal for immediate Docker / Coolify deployments:
+1. Boot the container and access `http://<your-host>:9000`.
+2. On first run, the interactive onboarding modal opens automatically.
+3. Select **⚡ 1-Click Generate PKI Now**.
+4. Enter your Organization Name (e.g. `MyCompany`), Country, and Intermediate Signer Name.
+5. Click **Generate PKI & Auto-Configure Signer**:
+   - The engine generates a 4096-bit RSA Root CA and Intermediate CA in memory.
+   - The Intermediate CA private key is **automatically encrypted using AES-256-GCM** and saved into the database.
+   - The **Root CA private key is delivered to your browser for a one-time download**.
+   - **The server immediately and permanently shreds the Root CA private key from memory and disk.**
+6. Save your downloaded `root-ca.key.pem` to an offline flash drive or cold vault.
+
+---
+
+### Mode B: Offline Air-Gapped Scripts
+
+For organizations requiring physical air-gap boundaries:
+
+#### 1. Run the safe generator script on an offline machine:
+- **Windows (PowerShell)**:
+  ```powershell
+  .\scripts\generate-offline-ca.ps1 -OrgName "MyCompany" -IntermediateName "int-server"
+  ```
+- **Linux / macOS (Bash)**:
+  ```bash
+  chmod +x ./scripts/generate-offline-ca.sh
+  ./scripts/generate-offline-ca.sh "MyCompany" "US" "California" "San Francisco" "int-server"
+  ```
+
+#### 2. Inspect generated folders:
+| Directory | Contents | Security Action |
 |---|---|---|
-| `upload-to-web-ui/` | `root-ca.cert.pem`, `int-server.cert.pem`, `int-server.key.pem` | **UPLOAD TO WEB UI** |
-| `offline-root-ca-vault/` | `root-ca.key.pem` | **NEVER UPLOAD! KEEP OFFLINE** |
+| `upload-to-web-ui/` | `root-ca.cert.pem`<br>`int-server.cert.pem`<br>`int-server.key.pem` | **Upload to Web UI via Dashboard** |
+| `offline-root-ca-vault/` | `root-ca.key.pem` | **NEVER UPLOAD! Store in safe cold storage** |
 
-Both `offline-root-ca-vault/` and `upload-to-web-ui/` are automatically git-ignored to prevent accidental commits.
+*Note: Both directories and all `.key` files are strictly git-ignored.*
 
 ---
 
-## 🚀 Deployment Guide (Coolify)
+## 🐳 Docker & Coolify Deployment Guide
 
-### Step 1: Deploy with Coolify
-1. In your Coolify dashboard, select **+ New Resource** → **Application** → **From Git Repository**.
-2. Repository URL: your git repository.
-3. Select **Build Pack**: **`Dockerfile`**.
-4. Set **Port**: `9000`.
+### Deploying via Docker CLI
+```bash
+docker run -d \
+  --name cert-signer \
+  -p 9000:9000 \
+  -v $(pwd)/pki-data:/app/data \
+  -e ADMIN_PASSWORD="MyCustomStrongPassword" \
+  authoritydmc/rajlabs-cert-signer:latest
+```
+
+### Deploying via Docker Compose
+```yaml
+version: '3.8'
+
+services:
+  cert-signer:
+    image: authoritydmc/rajlabs-cert-signer:latest
+    build: .
+    ports:
+      - "9000:9000"
+    environment:
+      - ADMIN_PASSWORD=MyCustomStrongPassword
+      # Optional external database:
+      # - DATABASE_URL=postgres://pkiuser:pkipass@postgres:5432/pkidb
+    volumes:
+      - cert-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  cert-data:
+```
+
+### Deploying with Coolify
+1. In Coolify, click **+ New Resource** → **Application** → **From Git Repository**.
+2. Point to `https://github.com/authoritydmc/rajlabs-cert-signer`.
+3. Set **Build Pack** to `Dockerfile`.
+4. Set **Port** to `9000`.
 5. Under **Storage**, add a persistent volume:
    - **Mount Path**: `/app/data`
-6. (Optional) Set an external PostgreSQL database in **Environment Variables**:
-   - `DATABASE_URL=postgres://user:pass@your-db:5432/pki`
-7. Click **Deploy**!
-
-### Step 2: Retrieve Admin Password
-When the container boots for the first time, check the **Coolify Deployment Logs** or open the terminal inside `/app/data/admin_credentials.txt`:
-```
-==========================================================
- ENTERPRISE CERTIFICATE SIGNER - ADMIN CREDENTIALS
-==========================================================
- Generated User     : admin
- Generated Password : <random-secure-password>
- Login UI URL       : http://your-coolify-domain:9000
- Saved at (Docker)  : /app/data/admin_credentials.txt
-==========================================================
-```
-
-### Step 3: Login & Import Intermediate Signer
-1. Log into your dashboard with `admin` and your generated password.
-2. Go to **Intermediate CAs** → **+ Import Intermediate CA**.
-3. Paste the files from your `upload-to-web-ui/` folder:
-   - `root-ca.cert.pem`
-   - `int-server.cert.pem`
-   - `int-server.key.pem`
-4. Click **Save & Encrypt**. Your private key is now encrypted at rest using **AES-256-GCM**.
+6. Under **Environment Variables**, optionally set:
+   - `ADMIN_PASSWORD=<YourSecurePassword>`
+   - `DATABASE_URL=postgres://...` (Optional, defaults to SQLite)
+7. Click **Deploy**.
 
 ---
 
-## 🔑 Automated ACME & API Token Usage
+## 📡 REST API Specification
 
-### Generating API Tokens in UI
-1. Navigate to **API Tokens** in the dashboard.
-2. Click **+ Generate New Token** (e.g. `ingress-certbot-token`).
-3. Copy the token: `cert_3a9f...`
+### Authentication
+Authenticate API calls using one of the following headers:
+- `x-api-key: cert_xxxxxxxx...`
+- `Authorization: Bearer <jwt-token>` (for Admin UI sessions)
 
-### Issuing Certificates via REST API
-```bash
-curl -X POST http://<ca-server>:9000/api/v1/sign \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: cert_3a9f..." \
-  -d '{
-    "csr": "-----BEGIN CERTIFICATE REQUEST-----\n...",
-    "san": ["web.example.com", "api.example.com"],
-    "days": 90
-  }'
+### 1. Issue / Sign Certificate
+`POST /api/v1/sign`
+
+**Request Body:**
+```json
+{
+  "csr": "-----BEGIN CERTIFICATE REQUEST-----\nMIICvDCCAaQCAQAwdzELMAkGA1UEBhMCVVMx...",
+  "san": ["api.example.internal", "10.0.0.5"],
+  "days": 90,
+  "intermediateId": "int-server"
+}
 ```
 
-### Automated ACME (Certbot / Traefik / Caddy)
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "certificate": "-----BEGIN CERTIFICATE-----\nMIIEczCCA1ugAwIBAgIU...",
+  "chain": "-----BEGIN CERTIFICATE-----\n[Intermediate CA PEM]\n-----BEGIN CERTIFICATE-----\n[Root CA PEM]\n",
+  "fullChain": "-----BEGIN CERTIFICATE-----\n[Leaf PEM]\n[Intermediate PEM]\n[Root PEM]\n",
+  "serialNumber": "1004",
+  "expiresAt": "2027-01-01T00:00:00.000Z"
+}
+```
+
+---
+
+### 2. Revoke Certificate
+`POST /api/v1/revoke`
+
+**Request Body:**
+```json
+{
+  "serial": "1004",
+  "reason": "keyCompromise"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Certificate 1004 revoked successfully and CRL regenerated."
+}
+```
+
+---
+
+### 3. Parse / Inspect Certificate or CSR
+`POST /api/admin/parse-cert`
+
+**Request Body:**
+```json
+{
+  "pem": "-----BEGIN CERTIFICATE-----\n..."
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "type": "Certificate",
+  "subject": "CN = web.mycompany.internal, O = MyCompany",
+  "issuer": "CN = MyCompany Intermediate CA",
+  "validFrom": "Oct 1 18:00:00 2026 GMT",
+  "validTo": "Jan 1 18:00:00 2027 GMT",
+  "san": ["web.mycompany.internal", "IP:10.0.0.15"],
+  "fingerprint": "SHA256 Fingerprint=8A:4F:92:...",
+  "keyUsage": "Digital Signature, Key Encipherment",
+  "extendedKeyUsage": "TLS Web Server Authentication, TLS Web Client Authentication"
+}
+```
+
+---
+
+### 4. Download Certificate Revocation List (CRL)
+`GET /crl/:caName.crl`
+- **Response Headers**: `Content-Type: application/pkix-crl`
+- **Body**: Binary DER CRL file queryable by firewalls, reverse proxies, and operating systems.
+
+---
+
+## 🔄 Automated ACME RFC 8555 Setup
+
+The engine serves an RFC 8555 compliant ACME directory endpoint at `/acme/directory`.
+
+### Certbot Example
 ```bash
 certbot certonly --standalone \
   --server http://<ca-server>:9000/acme/directory \
-  -d myapp.example.com
+  --email admin@mycompany.internal \
+  --agree-tos \
+  --no-eff-email \
+  -d app.mycompany.internal
 ```
+
+### Traefik Configuration (`traefik.yml`)
+```yaml
+certificatesResolvers:
+  internalCa:
+    acme:
+      email: admin@mycompany.internal
+      caServer: http://<ca-server>:9000/acme/directory
+      storage: /etc/traefik/acme.json
+      httpChallenge:
+        entryPoint: web
+```
+
+---
+
+## 🔍 Certificate & CSR Inspector Tool
+
+The web dashboard includes a built-in inspector accessible at the **Certificate Viewer** tab or live at [GitHub Pages Demo](https://authoritydmc.github.io/rajlabs-cert-signer/):
+
+- **Drag-and-drop or paste**: Accepts `.crt`, `.pem`, `.cer`, `.csr`, or `.der` files.
+- **Subject Alternative Names (SAN)**: Auto-extracts DNS domains, IPv4/IPv6 addresses, and emails into clickable badges.
+- **Validity & Expiry Bars**: Visual meter showing days elapsed vs. days remaining.
+- **Key Usage Badges**: Identifies Server Auth, Client Auth, Code Signing, and Digital Signatures.
+- **Raw OpenSSL Output**: Includes a full dump tab for troubleshooting complex X.509 extensions.
+
+---
+
+## 💻 1-Line Client Device Trust Installers
+
+Once your Root CA is active, install the trust certificate across client machines using simple 1-line commands:
+
+### Windows (PowerShell as Administrator)
+```powershell
+irm http://<ca-server>:9000/install-trust-windows.ps1 | iex
+```
+*Installs the Root CA into `Cert:\LocalMachine\Root` and intermediate certs into `Cert:\LocalMachine\CA`.*
+
+### Linux / Ubuntu / Debian / RHEL (Bash as Root)
+```bash
+curl -fsSL http://<ca-server>:9000/install-trust-linux.sh | sudo bash
+```
+*Copies certificates to `/usr/local/share/ca-certificates/` and runs `update-ca-certificates`.*
+
+### Manual Download
+Download `root-ca.crt` or `ca-chain.crt` directly from the dashboard:
+- Public Root Certificate: `http://<ca-server>:9000/download/root-ca.crt`
+- Full Chain Bundle: `http://<ca-server>:9000/download/ca-chain.crt`
+
+---
+
+## 🗄️ Database Schema & Encryption at Rest
+
+When intermediate CAs are imported or generated, their private keys are encrypted before hitting storage:
+- **Cipher**: AES-256-GCM
+- **Key Derivation**: SHA-256 digest of container vault secret (`VAULT_SECRET_KEY` or auto-generated machine secret).
+- **IV & Auth Tag**: Unique 16-byte IV and 16-byte authentication tag per record.
+
+### Inbuilt SQLite Architecture
+```sql
+CREATE TABLE intermediate_cas (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  cert_pem TEXT NOT NULL,
+  encrypted_key_pem TEXT NOT NULL,
+  root_cert_pem TEXT NOT NULL,
+  is_active INTEGER DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE api_tokens (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  token TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE issued_certs (
+  serial TEXT PRIMARY KEY,
+  common_name TEXT NOT NULL,
+  san TEXT NOT NULL,
+  intermediate_id TEXT NOT NULL,
+  cert_pem TEXT NOT NULL,
+  full_chain_pem TEXT NOT NULL,
+  revoked INTEGER DEFAULT 0,
+  revoked_at TEXT,
+  revocation_reason TEXT,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+```
+
+---
+
+## 📄 License
+This project is licensed under the [MIT License](LICENSE).
