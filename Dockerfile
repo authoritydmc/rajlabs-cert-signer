@@ -9,14 +9,14 @@ LABEL description="Enterprise PKI Certificate Authority & ACME Signer"
 
 WORKDIR /app
 
-# Install openssl and bash for cryptographic operations and CRL generation
-RUN apk add --no-cache openssl bash curl ca-certificates
+# Install openssl, bash, sqlite, and build dependencies for native compilation
+RUN apk add --no-cache openssl bash curl ca-certificates sqlite python3 make g++
 
 # Copy package descriptors
 COPY signer-engine/package*.json ./
 
 # Install production dependencies
-RUN npm ci --only=production || npm install --production
+RUN npm install --production
 
 # Copy application source
 COPY signer-engine/server.js ./

@@ -1,7 +1,7 @@
 {
   "name": "rajlabs-cert-signer-engine",
-  "version": "1.1.0",
-  "description": "Enterprise PKI Certificate Signer Web UI, ACME, REST API with encrypted DB storage",
+  "version": "1.2.0",
+  "description": "Enterprise PKI Certificate Signer Web UI, ACME, REST API with encrypted SQLite / Postgres storage",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -10,6 +10,7 @@
     "bcryptjs": "^2.4.3",
     "express": "^4.21.2",
     "pg": "^8.13.1",
+    "sqlite3": "^5.1.7",
     "uuid": "^10.0.0"
   }
 }

@@ -49,12 +49,35 @@ function decryptData(cipherText) {
 }
 
 // ------------------------------------------------------------------
-// PostgreSQL or Embedded JSON Database Layer
+// Database Layer: PostgreSQL with automatic in-built SQLite fallback
 // ------------------------------------------------------------------
+const SQLITE_FILE = path.join(DATA_DIR, 'pki_vault.sqlite');
+let sqliteDb = null;
 let pgPool = null;
+let activeDatabaseType = 'Inbuilt SQLite';
+
+try {
+  const sqlite3 = require('sqlite3').verbose();
+  sqliteDb = new sqlite3.Database(SQLITE_FILE);
+  sqliteDb.serialize(() => {
+    sqliteDb.run(`CREATE TABLE IF NOT EXISTS system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    sqliteDb.run(`CREATE TABLE IF NOT EXISTS intermediate_cas (id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL, description TEXT, cert_pem TEXT NOT NULL, encrypted_key_pem TEXT NOT NULL, root_cert_pem TEXT NOT NULL, is_active INTEGER DEFAULT 0, created_at TEXT)`);
+    sqliteDb.run(`CREATE TABLE IF NOT EXISTS api_tokens (id TEXT PRIMARY KEY, name TEXT NOT NULL, token TEXT UNIQUE NOT NULL, created_at TEXT)`);
+    sqliteDb.run(`CREATE TABLE IF NOT EXISTS issued_certs (id TEXT PRIMARY KEY, serial TEXT NOT NULL, ca_name TEXT NOT NULL, san_domains TEXT, status TEXT DEFAULT 'valid', issued_at TEXT)`);
+  });
+  console.log(`[DATABASE] Inbuilt SQLite initialized at: ${SQLITE_FILE}`);
+} catch (err) {
+  console.log(`[DATABASE] SQLite native driver fallback to JSON:`, err.message);
+}
+
 if (process.env.DATABASE_URL) {
   pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
-  initPostgres().catch(console.error);
+  initPostgres().then(() => {
+    activeDatabaseType = 'PostgreSQL';
+    console.log(`[DATABASE] Connected to external PostgreSQL database`);
+  }).catch(err => {
+    console.error(`[DATABASE] PostgreSQL connection failed, falling back to Inbuilt SQLite:`, err.message);
+  });
 }
 
 async function initPostgres() {
@@ -106,6 +129,12 @@ function getLocalDB() {
 
 function saveLocalDB(data) {
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  // Sync to SQLite asynchronously for durability
+  if (sqliteDb) {
+    sqliteDb.serialize(() => {
+      sqliteDb.run(`INSERT OR REPLACE INTO system_config (key, value) VALUES ('db_snapshot', ?)`, [JSON.stringify(data)]);
+    });
+  }
 }
 
 // ------------------------------------------------------------------
@@ -113,16 +142,28 @@ function saveLocalDB(data) {
 // ------------------------------------------------------------------
 function initAdminAuth() {
   const db = getLocalDB();
-  if (!db.config.adminPasswordHash) {
-    const generatedPassword = process.env.ADMIN_PASSWORD || crypto.randomBytes(18).toString('base64url');
+  db.config.adminUser = process.env.ADMIN_USER || db.config.adminUser || 'admin';
+
+  if (process.env.ADMIN_PASSWORD) {
+    // User explicitly provided ADMIN_PASSWORD in environment (e.g. in Docker / Coolify)
     const salt = bcrypt.genSaltSync(10);
-    db.config.adminUser = process.env.ADMIN_USER || 'admin';
+    db.config.adminPasswordHash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, salt);
+    if (!db.config.hasCompletedSetup) {
+      db.config.isFirstRun = true;
+      db.config.temporaryInitialPassword = process.env.ADMIN_PASSWORD;
+    }
+    saveLocalDB(db);
+    console.log(`[AUTH] Admin password configured from environment variable for user '${db.config.adminUser}'`);
+  } else if (!db.config.adminPasswordHash) {
+    // No password provided; auto-generate a cryptographically strong initial password
+    const generatedPassword = crypto.randomBytes(18).toString('base64url');
+    const salt = bcrypt.genSaltSync(10);
     db.config.adminPasswordHash = bcrypt.hashSync(generatedPassword, salt);
     db.config.isFirstRun = true;
     db.config.temporaryInitialPassword = generatedPassword;
     saveLocalDB(db);
 
-    const credNotice = `==========================================================\n Enterprise CERTIFICATE SIGNER - ADMIN CREDENTIALS\n==========================================================\n Generated User     : ${db.config.adminUser}\n Generated Password : ${generatedPassword}\n Login UI URL       : ${BASE_URL}/login\n Saved at (Docker)  : ${CREDENTIALS_FILE}\n==========================================================\n`;
+    const credNotice = `==========================================================\n ENTERPRISE CERTIFICATE SIGNER - ADMIN CREDENTIALS\n==========================================================\n Generated User     : ${db.config.adminUser}\n Generated Password : ${generatedPassword}\n Login UI URL       : ${BASE_URL}/login\n Saved at (Docker)  : ${CREDENTIALS_FILE}\n==========================================================\n`;
     fs.writeFileSync(CREDENTIALS_FILE, credNotice);
     console.log(credNotice);
   }
@@ -238,6 +279,7 @@ app.get('/api/auth/setup-status', (req, res) => {
 app.post('/api/auth/complete-setup', (req, res) => {
   const db = getLocalDB();
   db.config.isFirstRun = false;
+  db.config.hasCompletedSetup = true;
   delete db.config.temporaryInitialPassword;
   saveLocalDB(db);
   res.json({ success: true });
@@ -535,6 +577,7 @@ app.get('/health', (req, res) => {
     intermediateCAsCount: db.intermediateCAs.length,
     activeCA: (db.intermediateCAs.find(c => c.isActive) || {}).name || null,
     rootKeyAirGapped: true,
+    activeDatabase: activeDatabaseType,
     postgresConnected: !!pgPool
   });
 });

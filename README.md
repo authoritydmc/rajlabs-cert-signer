@@ -37,8 +37,10 @@ This solution enforces the gold standard in Zero-Trust PKI:
 ## ✨ Features
 
 - 🖥️ **Full Web UI Dashboard**: Manage multiple intermediate CAs, issue leaf certificates, and view certificate histories.
-- 🔐 **Auto-Generated Secure Admin Password**: Automatically generates a cryptographically random admin password on initial start and saves it securely to `/app/data/admin_credentials.txt` (and container logs).
-- 🗄️ **Flexible Storage**: Works zero-config with embedded file storage or scales with external **PostgreSQL**.
+- 🔐 **Dual Authentication Modes**:
+  - Provide your own custom password via the `ADMIN_PASSWORD` environment variable (ideal for Docker / Coolify).
+  - Or let the container auto-generate a secure random password on first run and display it on-screen and in `/app/data/admin_credentials.txt`.
+- 🗄️ **Zero-Config Inbuilt SQLite Database**: By default, uses native SQLite (`pki_vault.sqlite`) stored in your persistent `/app/data` volume. Seamlessly switches to external **PostgreSQL** if `DATABASE_URL` is configured.
 - 🔑 **API Token System**: Create and revoke scoped API keys directly in the UI for automated ACME clients, CI/CD pipelines, and microservices.
 - 📜 **Automatic Full-Chain Bundling**: End devices never suffer from "missing intermediate chain" errors because the engine automatically concatenates the leaf + intermediate + root public certificates.
 - 💻 **1-Command Client Trust Installers**:
