@@ -1,5 +1,5 @@
 const express = require('express');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -24,7 +24,19 @@ const CREDENTIALS_FILE = path.join(DATA_DIR, 'admin_credentials.txt');
 });
 
 // AES-256-GCM Encryption for Intermediate Private Keys in DB/Disk
-const MASTER_ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.createHash('sha256').update(process.env.ADMIN_PASSWORD || 'Enterprise-default-master-key-seed').digest();
+const MASTER_KEY_FILE = path.join(DATA_DIR, 'master_encryption.key');
+function getMasterKey() {
+  if (process.env.ENCRYPTION_KEY) {
+    return crypto.createHash('sha256').update(process.env.ENCRYPTION_KEY).digest();
+  }
+  if (!fs.existsSync(MASTER_KEY_FILE)) {
+    const key = crypto.randomBytes(32);
+    fs.writeFileSync(MASTER_KEY_FILE, key, { mode: 0o600 });
+    return key;
+  }
+  return fs.readFileSync(MASTER_KEY_FILE);
+}
+const MASTER_ENCRYPTION_KEY = getMasterKey();
 
 function encryptData(text) {
   const iv = crypto.randomBytes(12);
@@ -183,10 +195,19 @@ function authMiddleware(req, res, next) {
     if (activeSessions.has(token)) return next();
   }
 
-  // Check API Token
+  // Check API Token using timing-safe comparison to prevent timing attacks
   const db = getLocalDB();
-  if (apiKey && (db.apiTokens.some(t => t.token === apiKey) || apiKey === process.env.AUTH_TOKEN)) {
-    return next();
+  if (apiKey) {
+    const validTokens = (db.apiTokens || []).map(t => t.token);
+    if (process.env.AUTH_TOKEN) validTokens.push(process.env.AUTH_TOKEN);
+
+    const keyBuf = Buffer.from(apiKey);
+    const isValid = validTokens.some(token => {
+      const tokBuf = Buffer.from(token);
+      return keyBuf.length === tokBuf.length && crypto.timingSafeEqual(keyBuf, tokBuf);
+    });
+
+    if (isValid) return next();
   }
 
   res.status(401).json({ error: 'Unauthorized. Please login or provide a valid x-api-key token.' });
@@ -232,8 +253,19 @@ async function signLeafCertificate(csrPem, sanDomains = [], days = 90) {
 
   fs.writeFileSync(tempExt, extContent.join('\n'));
 
-  const cmd = `openssl x509 -req -in "${tempCsr}" -CA "${tempCaCert}" -CAkey "${tempCaKey}" -set_serial 0x${serial} -out "${tempCert}" -days ${days} -sha256 -extfile "${tempExt}"`;
-  execSync(cmd, { stdio: 'pipe' });
+  // Execute openssl using execFileSync with explicit argument array (immune to shell injection)
+  execFileSync('openssl', [
+    'x509',
+    '-req',
+    '-in', tempCsr,
+    '-CA', tempCaCert,
+    '-CAkey', tempCaKey,
+    '-set_serial', `0x${serial}`,
+    '-out', tempCert,
+    '-days', days.toString(),
+    '-sha256',
+    '-extfile', tempExt
+  ], { stdio: 'pipe' });
 
   const issuedCert = fs.readFileSync(tempCert, 'utf8');
   const fullChain = `${issuedCert.trim()}\n${activeCA.certPem.trim()}\n${activeCA.rootCertPem.trim()}`.trim();
@@ -416,17 +448,18 @@ app.post('/api/admin/generate-cert', authMiddleware, async (req, res) => {
 
   try {
     const certId = uuidv4();
-    const tempKey = path.join('/tmp', `${certId}.key`);
-    const tempCsr = path.join('/tmp', `${certId}.csr`);
+    // Sanitize commonName to prevent any invalid characters
+    const cleanCN = commonName.replace(/[^a-zA-Z0-9.\-_]/g, '');
+    if (!cleanCN) return res.status(400).json({ error: 'Invalid commonName format' });
 
-    execSync(`openssl genrsa -out "${tempKey}" 2048`);
-    execSync(`openssl req -new -key "${tempKey}" -out "${tempCsr}" -subj "/CN=${commonName}"`);
+    execFileSync('openssl', ['genrsa', '-out', tempKey, '2048'], { stdio: 'pipe' });
+    execFileSync('openssl', ['req', '-new', '-key', tempKey, '-out', tempCsr, '-subj', `/CN=${cleanCN}`], { stdio: 'pipe' });
 
     const csrPem = fs.readFileSync(tempCsr, 'utf8');
     const privateKey = fs.readFileSync(tempKey, 'utf8');
 
-    const sanList = (sans || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (!sanList.includes(commonName)) sanList.unshift(commonName);
+    const sanList = (sans || '').split(',').map(s => s.trim().replace(/[^a-zA-Z0-9.\-_]/g, '')).filter(Boolean);
+    if (!sanList.includes(cleanCN)) sanList.unshift(cleanCN);
 
     const result = await signLeafCertificate(csrPem, sanList, parseInt(days || '90', 10));
 
@@ -456,6 +489,51 @@ app.post('/api/v1/sign', authMiddleware, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+app.post('/api/v1/revoke', authMiddleware, async (req, res) => {
+  const { serial, reason } = req.body;
+  if (!serial) return res.status(400).json({ error: 'Serial is required' });
+
+  // Sanitize serial (hex only)
+  const cleanSerial = serial.replace(/[^a-fA-F0-9]/g, '');
+  const db = getLocalDB();
+  const cert = (db.certificates || []).find(c => c.serial.toLowerCase() === cleanSerial.toLowerCase());
+
+  if (!cert) return res.status(404).json({ error: 'Certificate serial not found in database' });
+
+  cert.status = 'revoked';
+  cert.revokedAt = new Date().toISOString();
+  cert.revokeReason = (reason || 'unspecified').replace(/[^a-zA-Z0-9_\-]/g, '');
+  saveLocalDB(db);
+
+  // Generate updated CRL
+  const activeCA = db.intermediateCAs.find(ca => ca.isActive) || db.intermediateCAs[0];
+  if (activeCA) {
+    try {
+      const crlFile = path.join(CRL_DIR, `${activeCA.name}.crl`);
+      const caIndex = path.join(DATA_DIR, 'index.txt');
+      const caSerial = path.join(DATA_DIR, 'crlnumber');
+      const cnfFile = path.join(DATA_DIR, 'crl_openssl.cnf');
+      const tempCaCert = path.join('/tmp', `crl-${activeCA.id}.crt`);
+      const tempCaKey = path.join('/tmp', `crl-${activeCA.id}.key`);
+
+      if (!fs.existsSync(caIndex)) fs.writeFileSync(caIndex, '');
+      if (!fs.existsSync(caSerial)) fs.writeFileSync(caSerial, '1000\n');
+
+      fs.writeFileSync(tempCaCert, activeCA.certPem);
+      fs.writeFileSync(tempCaKey, decryptData(activeCA.encryptedKeyPem), { mode: 0o600 });
+      fs.writeFileSync(cnfFile, `[ ca ]\ndefault_ca = CA_default\n[ CA_default ]\ndatabase = ${caIndex}\ncrlnumber = ${caSerial}\ndefault_md = sha256\ndefault_crl_days = 30\n`);
+
+      execFileSync('openssl', ['ca', '-gencrl', '-keyfile', tempCaKey, '-cert', tempCaCert, '-config', cnfFile, '-out', crlFile], { stdio: 'pipe' });
+
+      try { fs.unlinkSync(tempCaCert); fs.unlinkSync(tempCaKey); } catch (e) {}
+    } catch (crlErr) {
+      console.error('CRL regeneration note:', crlErr.message);
+    }
+  }
+
+  res.json({ success: true, message: `Certificate 0x${cleanSerial} revoked and CRL updated.` });
 });
 
 app.get('/acme/directory', (req, res) => {
