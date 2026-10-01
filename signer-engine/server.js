@@ -238,12 +238,25 @@ async function signLeafCertificate(csrPem, sanDomains = [], days = 90) {
   fs.writeFileSync(tempCaCert, activeCA.certPem);
   fs.writeFileSync(tempCaKey, decryptData(activeCA.encryptedKeyPem), { mode: 0o600 });
 
+  const crlFallbackBases = [
+    BASE_URL,
+    'http://certs.rajlabs.in',
+    'http://crl.rajlabs.in',
+    'http://pki.rajlabs.in'
+  ].filter((v, i, a) => a.indexOf(v) === i);
+
+  const crlUrls = crlFallbackBases.map(u => `URI:${u}/crl/${activeCA.name}.crl`).join(', ');
+  const ocspUrls = crlFallbackBases.map(u => `OCSP;URI:${u}/ocsp`).join(', ');
+  const caIssuerUrls = crlFallbackBases.map(u => `caIssuers;URI:${u}/api/v1/ca/${activeCA.name}/cert`).join(', ');
+
   let extContent = [
     'basicConstraints = CA:FALSE',
     'keyUsage = digitalSignature, keyEncipherment',
     'extendedKeyUsage = serverAuth, clientAuth',
     'subjectKeyIdentifier = hash',
-    'authorityKeyIdentifier = keyid,issuer'
+    'authorityKeyIdentifier = keyid,issuer',
+    `crlDistributionPoints = ${crlUrls}`,
+    `authorityInfoAccess = ${ocspUrls}, ${caIssuerUrls}`
   ];
 
   if (sanDomains.length > 0) {
