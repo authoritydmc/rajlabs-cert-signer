@@ -118,6 +118,8 @@ function initAdminAuth() {
     const salt = bcrypt.genSaltSync(10);
     db.config.adminUser = process.env.ADMIN_USER || 'admin';
     db.config.adminPasswordHash = bcrypt.hashSync(generatedPassword, salt);
+    db.config.isFirstRun = true;
+    db.config.temporaryInitialPassword = generatedPassword;
     saveLocalDB(db);
 
     const credNotice = `==========================================================\n Enterprise CERTIFICATE SIGNER - ADMIN CREDENTIALS\n==========================================================\n Generated User     : ${db.config.adminUser}\n Generated Password : ${generatedPassword}\n Login UI URL       : ${BASE_URL}/login\n Saved at (Docker)  : ${CREDENTIALS_FILE}\n==========================================================\n`;
@@ -220,6 +222,26 @@ async function signLeafCertificate(csrPem, sanDomains = [], days = 90) {
 // Web UI & Authentication Endpoints
 // ------------------------------------------------------------------
 app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/api/auth/setup-status', (req, res) => {
+  const db = getLocalDB();
+  if (db.config.isFirstRun) {
+    return res.json({
+      isFirstRun: true,
+      adminUser: db.config.adminUser,
+      initialPassword: db.config.temporaryInitialPassword
+    });
+  }
+  res.json({ isFirstRun: false });
+});
+
+app.post('/api/auth/complete-setup', (req, res) => {
+  const db = getLocalDB();
+  db.config.isFirstRun = false;
+  delete db.config.temporaryInitialPassword;
+  saveLocalDB(db);
+  res.json({ success: true });
+});
 
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body;
@@ -471,6 +493,9 @@ app.get('/certs/root-ca.crt', (req, res) => {
   const db = getLocalDB();
   const ca = db.intermediateCAs.find(c => c.isActive) || db.intermediateCAs[0];
   if (ca && ca.rootCertPem) {
+    if (req.query.download === '1') {
+      res.setHeader('Content-Disposition', 'attachment; filename="root-ca.crt"');
+    }
     res.setHeader('Content-Type', 'application/x-x509-ca-cert');
     return res.send(ca.rootCertPem);
   }
@@ -481,10 +506,26 @@ app.get('/certs/intermediate-ca.crt', (req, res) => {
   const db = getLocalDB();
   const ca = db.intermediateCAs.find(c => c.isActive) || db.intermediateCAs[0];
   if (ca && ca.certPem) {
+    if (req.query.download === '1') {
+      res.setHeader('Content-Disposition', 'attachment; filename="intermediate-ca.crt"');
+    }
     res.setHeader('Content-Type', 'application/x-x509-ca-cert');
     return res.send(ca.certPem);
   }
   res.status(404).send('Intermediate cert not found');
+});
+
+app.get('/certs/ca-chain.crt', (req, res) => {
+  const db = getLocalDB();
+  const ca = db.intermediateCAs.find(c => c.isActive) || db.intermediateCAs[0];
+  if (ca && ca.certPem && ca.rootCertPem) {
+    if (req.query.download === '1') {
+      res.setHeader('Content-Disposition', 'attachment; filename="ca-chain.crt"');
+    }
+    res.setHeader('Content-Type', 'application/x-x509-ca-cert');
+    return res.send(`${ca.certPem.trim()}\n${ca.rootCertPem.trim()}\n`);
+  }
+  res.status(404).send('CA Chain not available');
 });
 
 app.get('/health', (req, res) => {
