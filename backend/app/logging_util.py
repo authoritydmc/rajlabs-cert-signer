@@ -72,3 +72,9 @@ def audit(event: str, details=None, request=None):
             f.write(json.dumps(entry) + "\n")
     except Exception:
         pass
+    # Mirror into SQL when active (file stays the canonical trail for JSON mode).
+    try:
+        from . import store as _store
+        _store.audit_write(entry)
+    except Exception:
+        pass

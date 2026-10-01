@@ -107,7 +107,12 @@ export default function CAs({ onChanged }) {
 
       {showImport && (
         <Card className="mt-4 border-cyan-500/40">
-          <h3 className="font-bold text-cyan-300 mb-3">Import Intermediate CA</h3>
+          <h3 className="font-bold text-cyan-300 mb-1">Import Intermediate CA</h3>
+          <p className="text-[11px] text-slate-500 mb-3">
+            Paste the three PEM blocks for one intermediate: its <b>certificate</b> + <b>private key</b> + the <b>Root certificate</b> that signed it.
+            Got them from the 🧙 Setup Wizard downloads or the offline scripts (<span className="mono">upload-to-web-ui/</span> folder).
+            Never paste a Root <b>private key</b> here — it must stay offline.
+          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Identifier (int-server…)"><input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inp} /></Field>
             <Field label="Description"><input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className={inp} /></Field>

@@ -84,7 +84,7 @@ If you are an AI assistant, automation bot, or developer integrating with this r
 - 🖥️ **Tailwind Modern Web UI**: Responsive dark-mode dashboard with real-time stats, intermediate CA management, certificate viewer, and tutorials.
 - ⚡ **1-Click Onboarding Generator**: Issue both Root CA and Intermediate CA directly in memory on first boot without command-line dependencies.
 - 🔍 **Interactive Certificate & CSR Inspector**: Drag & drop or paste any PEM/CRT/CSR file to view Subject, Issuer, SAN badges, validity meters, key usage, and raw dumps.
-- 🗄️ **Zero-Config JSON Store**: single `database.json` (CAs, tokens, certs, audit) — zero setup, same file as v1.
+- 🗄️ **Postgres or Zero-Config JSON**: set `DATABASE_URL` for a real relational store (tables for CAs, tokens, certs, audit, sessions — transactional, concurrent-safe); unset it for single-file JSON. Existing `database.json` migrates automatically.
 - 🔑 **API Token Management**: scoped, expiring, usage-tracked API keys with bulk revoke/restore/delete for CI/CD, Traefik, and FreeRADIUS backends.
 - 📜 **Automated Full-Chain Assembly**: Emits `ca-chain.crt` bundling `[Leaf + Intermediate + Root]` to eliminate client-side `SEC_ERROR_UNKNOWN_ISSUER` errors.
 - 🔄 **Real-Time CRL Generation**: Automated `openssl ca -gencrl` on revocations, served with standard `application/pkix-crl` headers at `/crl/<ca-name>.crl`.
@@ -179,6 +179,7 @@ volumes:
    - `ADMIN_PASSWORD=<YourSecurePassword>` (required for reliable sign-in)
    - `BASE_PATH=/cert-signer` (only if serving under a sub-path; else leave empty)
    - `ENCRYPTION_KEY=<long-random-string>` (recommended for key-at-rest encryption)
+   - `POSTGRES_PASSWORD=<strong-password>` (MUST differ from the compose default; keep `DATABASE_URL` in sync)
    - `LOG_LEVEL=info` (or `debug`)
    - `CORS_ORIGIN=https://backend.rajlabs.in` (optional, defaults to `*`)
 7. Click **Deploy**. Healthcheck: `GET /health`; integration probe: `GET /api/v1/status`.
@@ -344,7 +345,15 @@ When intermediate CAs are imported or generated, their private keys are encrypte
 - **Key Derivation**: SHA-256 digest of container vault secret (`VAULT_SECRET_KEY` or auto-generated machine secret).
 - **IV & Auth Tag**: Unique 16-byte IV and 16-byte authentication tag per record.
 
-### JSON Store Layout (`/app/data/database.json`)
+### Store Layout: Postgres tables or JSON (`/app/data/database.json`)
+
+With `DATABASE_URL` set (compose default → bundled Postgres 16), all state lives
+in relational tables — `kv_config`, `intermediate_cas`, `api_tokens`,
+`certificates`, `audit_log`, `sessions` — while CA private keys stay
+AES-256-GCM encrypted either way. Sessions in the DB mean multiple uvicorn
+workers are safe. If Postgres is unreachable at boot, the server logs loudly
+and sticks to JSON for that process (check `database` in `/api/v1/status`).
+JSON shape (also the migration source):
 
 ```jsonc
 {

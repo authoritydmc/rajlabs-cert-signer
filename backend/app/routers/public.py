@@ -1,5 +1,4 @@
 """Public endpoints: health, status, trust downloads, CRL, installers, ACME, audit."""
-import json
 import time
 import uuid
 
@@ -9,6 +8,7 @@ from fastapi.responses import PlainTextResponse, Response
 from .. import config, store
 from ..auth import caller
 from ..errors import err
+from ..store import active_database_label
 
 router = APIRouter()
 _started = time.time()
@@ -41,7 +41,7 @@ def status(request: Request):
                 "crl": None, "acme": {"directory": f"{base}/acme/directory"},
                 "api": {"sign": "/api/v1/sign", "revoke": "/api/v1/revoke",
                         "revokeBulk": "/api/v1/revoke-bulk", "caCert": "/api/v1/ca/:name/cert"},
-                "database": "json", "time": health()["time"]}
+                "database": active_database_label(), "time": health()["time"]}
     crl_f = config.CRL_DIR / f"{active['name']}.crl"
     return {"success": True, "code": "READY", "status": "ready",
             "message": f"Signer ready (active CA: {active['name']}).",
@@ -52,7 +52,7 @@ def status(request: Request):
             "acme": {"directory": f"{base}/acme/directory"},
             "api": {"sign": "/api/v1/sign", "revoke": "/api/v1/revoke",
                     "revokeBulk": "/api/v1/revoke-bulk", "caCert": "/api/v1/ca/:name/cert"},
-            "database": "json", "time": health()["time"]}
+            "database": active_database_label(), "time": health()["time"]}
 
 
 @router.get("/api/admin/health-detail")
@@ -77,7 +77,8 @@ def health_detail(request: Request, _=Depends(caller)):
     return {"success": True, "openssl": openssl, "keyDecryptOk": key_ok, "keyError": key_err,
             "python": sys.version.split()[0], "uptimeSec": int(time.time() - _started),
             "dataDir": str(config.DATA_DIR), "basePath": config.BASE_PATH,
-            "baseUrl": _public_base(request), "database": "json",
+            "baseUrl": _public_base(request), "database": active_database_label(),
+            "databaseBackend": store.backend_name,
             "postgresConfigured": bool(config.DATABASE_URL), "logLevel": config.LOG_LEVEL}
 
 
@@ -173,10 +174,19 @@ def acme_dir(request: Request):
             "meta": {"termsOfService": f"{base}/terms", "website": "https://Enterprise.local"}}
 
 
-@router.api_route("/acme/new-nonce", methods=["GET", "HEAD"])
-def acme_nonce():
+def _nonce_response():
     from fastapi.responses import Response as _R
     return _R(status_code=204, headers={"Replay-Nonce": uuid.uuid4().hex, "Cache-Control": "no-store"})
+
+
+@router.get("/acme/new-nonce", operation_id="acme_new_nonce")
+def acme_nonce():
+    return _nonce_response()
+
+
+@router.head("/acme/new-nonce", operation_id="acme_new_nonce_head")
+def acme_nonce_head():
+    return _nonce_response()
 
 
 @router.post("/acme/new-account")
@@ -250,29 +260,10 @@ def acme_cert(cert_id: str):
                     media_type="application/pem-certificate-chain")
 
 
-# ---- Audit viewer ----
+# ---- Audit viewer (table backend when SQL is active, else the log file) ----
 @router.get("/api/admin/audit")
 def audit_list(request: Request, _=Depends(caller)):
-    log_f = config.LOGS_DIR / "audit.log"
-    if not log_f.exists():
-        return {"success": True, "total": 0, "entries": []}
-    entries = []
-    for line in log_f.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entries.append(json.loads(line))
-        except Exception:
-            continue
-    entries.reverse()
     q = dict(request.query_params)
-    filtered = entries
-    if q.get("event"):
-        filtered = [e for e in filtered if e.get("event") == q["event"]]
-    if q.get("q"):
-        needle = q["q"].lower()
-        filtered = [e for e in filtered if needle in json.dumps(e, default=str).lower()]
     try:
         lim = max(1, min(500, int(q.get("limit") or 100)))
     except (TypeError, ValueError):
@@ -281,8 +272,6 @@ def audit_list(request: Request, _=Depends(caller)):
         off = max(0, int(q.get("offset") or 0))
     except (TypeError, ValueError):
         off = 0
-    counts: dict[str, int] = {}
-    for e in entries:
-        counts[e.get("event", "?")] = counts.get(e.get("event", "?"), 0) + 1
-    return {"success": True, "total": len(filtered), "limit": lim, "offset": off,
-            "entries": filtered[off:off + lim], "eventCounts": counts}
+    total, entries, counts = store.audit_read(q.get("event"), q.get("q"), lim, off)
+    return {"success": True, "total": total, "limit": lim, "offset": off,
+            "entries": entries, "eventCounts": counts}

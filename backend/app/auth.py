@@ -11,7 +11,8 @@ from fastapi import Depends, Request
 from . import config, store
 from .errors import ApiError
 
-sessions: set[str] = set()
+from . import store as _store
+
 _login_hits: dict[str, list[float]] = defaultdict(list)
 
 
@@ -75,7 +76,7 @@ async def caller(request: Request):
     """Dependency: Bearer session OR x-api-key. Sets request.state.api_token."""
     authz = request.headers.get("authorization", "")
     if authz.startswith("Bearer "):
-        if authz[7:] in sessions:
+        if _store.session_has(authz[7:]):
             request.state.api_token = None
             return {"type": "session"}
     api_key = request.headers.get("x-api-key", "")
@@ -96,7 +97,5 @@ async def caller(request: Request):
 
 def new_session() -> str:
     tok = uuid.uuid4().hex
-    sessions.add(tok)
-    if len(sessions) > 500:
-        sessions.pop()
+    _store.session_add(tok)
     return tok

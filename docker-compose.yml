@@ -20,13 +20,41 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-} # Leave blank to auto-generate strong password
       - AUTH_TOKEN=${AUTH_TOKEN:-}         # Optional legacy global API key
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-} # Master key for DB-stored intermediate keys
+      # Relational store. Defaults to the bundled Postgres below; unset/empty
+      # keeps the zero-config JSON file. Existing database.json migrates once,
+      # automatically (data + audit trail), on first Postgres boot.
+      - DATABASE_URL=${DATABASE_URL:-postgres://pki:pki@postgres:5432/pki_signer}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
     volumes:
-      # Persists database.json (incl. encrypted CA keys), issued certs,
-      # CRLs, and logs/audit.log across redeploys. Same files as v1.
+      # Persists issued certs, CRLs, logs/audit.log and (in JSON mode)
+      # database.json across redeploys.
       - cert_signer_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # -------------------------------------------------------------------
+  # PostgreSQL (relational store: CAs, tokens, certs, audit, sessions)
+  # -------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: pki-cert-signer-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pki}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pki}
+      POSTGRES_DB: ${POSTGRES_DB:-pki_signer}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pki}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   cert_signer_data:
+    driver: local
+  postgres_data:
     driver: local

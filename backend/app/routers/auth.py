@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Request
 
 from .. import config, store, vault
-from ..auth import caller, hash_password, new_session, rate_limited, sessions, verify_password
+from .. import store as _store
+from ..auth import caller, hash_password, new_session, rate_limited, verify_password
 from ..errors import ApiError, err
 from ..logging_util import audit, logger
 from ..pki import TMP, _clean, run
@@ -194,7 +195,7 @@ def me(request: Request, _=Depends(caller)):
 def logout(request: Request):
     authz = request.headers.get("authorization", "")
     if authz.startswith("Bearer "):
-        sessions.discard(authz[7:])
+        _store.session_del(authz[7:])
     return {"success": True}
 
 

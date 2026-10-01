@@ -1,5 +1,7 @@
-# Pinned to smoke-tested versions (2026-10-01). Keep in sync after upgrades.
+# Pinned to smoke-tested versions. Keep in sync after upgrades.
 fastapi==0.142.2
 uvicorn[standard]==0.54.0
 bcrypt==4.3.0
 cryptography==45.0.7
+sqlalchemy==2.0.44
+psycopg[binary]==3.2.12
