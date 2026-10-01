@@ -425,12 +425,28 @@ The **API Tokens** tab is the full key-management console — no CLI needed:
 - **Usage** button per key → cert list issued with that key (`GET /api/admin/tokens/:id/usage`).
 - Prefer **Revoke** (reversible, audit-kept) over ✕ delete.
 
+## 📜 Certificate Management (critical-system grade)
+
+- **Server-side filters**: `?status=valid|revoked|renewed|expired`,
+  `?ca=`, `?q=` (serial/SAN/CN/fingerprint/key), `?expiringDays=N`,
+  `?limit=&offset=` + `filterOptions { cas, issuers }` for dropdowns.
+- **Expiry first-class**: `expiresAt` + SHA-256 fingerprint captured at
+  issuance (backfilled from stored PEM for legacy rows), `daysRemaining`,
+  `expired` flags, ≤7d/≤30d badges.
+- **Detail modal**: live `openssl -text`, file presence, supersession chain.
+- **Download** leaf/chain PEM (audited), **bulk bundle** selected chains.
+- **Renew**: fresh key + serial, same SANs/CA; old → `renewed` (superseded,
+  not CRL-listed). New private key shown once.
+- **Revoke** asks reason; CRL regenerated (`application/pkix-crl` at
+  `/crl/:ca.crl`); bulk revoke capped at 200.
+
 ## 🧾 Audit Logs Tab
 
 - Dedicated tab polling **`GET /api/admin/audit?event=&q=&limit=&offset=`**
   (Bearer auth, newest-first, max 500/page) with event dropdown, free-text
-  search, count chips, and a details column (serial, CN, actor, IP, reason).
-- Covers `auth.login_ok/failed`, `cert.issued/revoked/bulk_revoked`,
+  search, count chips, **Load-more pagination**, **Export JSON**, and a
+  details column (serial, CN, actor, IP, reason, renew chains).
+- Covers `auth.login_ok/failed`, `cert.issued/renewed/downloaded/revoked/bulk_revoked`,
   `token.created/revoked/restored/deleted/bulk`, `ca.imported/activated/deleted`.
 
 ## 📝 Enterprise Logging

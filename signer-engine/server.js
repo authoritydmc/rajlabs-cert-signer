@@ -499,14 +499,31 @@ async function signLeafCertificate(csrPem, sanDomains = [], days = 90, issuedVia
     try { fs.unlinkSync(f); } catch (e) {}
   });
 
+  const daysNum = Math.max(1, Math.min(825, parseInt(days, 10) || 90));
+  // Read back authoritative expiry + fingerprint from the issued cert (non-fatal).
+  let expiresAt = new Date(Date.now() + daysNum * 86400000).toISOString();
+  let fingerprint = null;
+  try {
+    const endOut = execFileSync('openssl', ['x509', '-in', tempCert, '-noout', '-enddate'], { stdio: 'pipe' }).toString();
+    const m = endOut.match(/notAfter=(.*)/);
+    if (m) expiresAt = new Date(m[1].trim()).toISOString();
+    const fpOut = execFileSync('openssl', ['x509', '-in', tempCert, '-noout', '-fingerprint', '-sha256'], { stdio: 'pipe' }).toString();
+    const fm = fpOut.match(/=(.*)/);
+    if (fm) fingerprint = fm[1].trim();
+  } catch (e) { logger.warn('cert.meta_read_failed', { serial }); }
+
   const primaryCN = (sanDomains && sanDomains[0]) || '';
   db.certificates.unshift({
     id: certId,
     serial,
     caName: activeCA.name,
+    caSelection: selectionReason,
     commonName: primaryCN,
     sanDomains,
+    days: daysNum,
     issuedAt: new Date().toISOString(),
+    expiresAt,
+    sha256Fingerprint: fingerprint,
     status: 'valid',
     issuedViaTokenId: (issuedVia && issuedVia.id) || null,
     issuedViaTokenName: (issuedVia && issuedVia.name) || null
@@ -646,7 +663,9 @@ app.post('/api/auth/onboarding-generate-pki', (req, res) => {
     [rootKeyFile, rootCertFile, intKeyFile, intCsrFile, intCertFile, extFile].forEach(f => {
       try { fs.unlinkSync(f); } catch (e) {}
     });
-    res.status(500).json({ error: 'Failed to generate PKI: ' + err.message });
+    logger.error('pki.generate_failed', { error: err.message });
+    return sendError(res, 500, 'INTERNAL_ERROR', 'Failed to generate PKI: ' + err.message,
+      err.message.includes('ENOENT') ? 'OpenSSL binary not found on PATH. The Docker image bundles it; on bare hosts install OpenSSL first.' : undefined);
   }
 });
 
@@ -926,10 +945,141 @@ app.post('/api/admin/profile', authMiddleware, (req, res) => {
   res.json({ success: true, profile: db.config.profile });
 });
 
-// Issued Certificates
+// ---- Certificate enrichment: expiry/days-left backfilled for legacy records ----
+function enrichCert(db, c) {
+  const out = { ...c };
+  // Backfill expiresAt for records issued before expiry tracking existed
+  if (!out.expiresAt) {
+    // Try the stored leaf PEM first (authoritative)
+    try {
+      const leaf = path.join(CERTS_DIR, `${out.id}.crt`);
+      if (fs.existsSync(leaf)) {
+        const endOut = execFileSync('openssl', ['x509', '-in', leaf, '-noout', '-enddate'], { stdio: 'pipe' }).toString();
+        const m = endOut.match(/notAfter=(.*)/);
+        if (m) out.expiresAt = new Date(m[1].trim()).toISOString();
+      }
+    } catch (e) { /* fall through to heuristic */ }
+    if (!out.expiresAt && out.issuedAt) {
+      out.expiresAt = new Date(new Date(out.issuedAt).getTime() + 90 * 86400000).toISOString();
+      out.expiresAtEstimated = true;
+    }
+  }
+  if (!out.sha256Fingerprint) {
+    try {
+      const leaf = path.join(CERTS_DIR, `${out.id}.crt`);
+      if (fs.existsSync(leaf)) {
+        const fpOut = execFileSync('openssl', ['x509', '-in', leaf, '-noout', '-fingerprint', '-sha256'], { stdio: 'pipe' }).toString();
+        const fm = fpOut.match(/=(.*)/);
+        if (fm) out.sha256Fingerprint = fm[1].trim();
+      }
+    } catch (e) {}
+  }
+  const msLeft = out.expiresAt ? new Date(out.expiresAt).getTime() - Date.now() : null;
+  out.daysRemaining = msLeft === null ? null : Math.ceil(msLeft / 86400000);
+  out.expired = msLeft !== null && msLeft <= 0 && out.status === 'valid';
+  out.hasLeafFile = fs.existsSync(path.join(CERTS_DIR, `${out.id}.crt`));
+  out.hasChainFile = fs.existsSync(path.join(CERTS_DIR, `${out.id}-chain.crt`));
+  return out;
+}
+
+// Issued Certificates — legacy bare array when no query, else filtered object:
+// ?status=valid|revoked|renewed|expired & ?ca=int-wifi & ?q=text &
+// ?expiringDays=30 (valid certs expiring within N days) & ?limit=&offset=
 app.get('/api/admin/certificates', authMiddleware, (req, res) => {
   const db = getLocalDB();
-  res.json(db.certificates || []);
+  const hasQuery = Object.keys(req.query || {}).length > 0;
+  if (!hasQuery) return res.json(db.certificates || []); // legacy shape
+  let list = (db.certificates || []).map(c => enrichCert(db, c));
+  const { status, ca, q, expiringDays, limit, offset } = req.query;
+  if (ca) list = list.filter(c => (c.caName || '').toLowerCase() === String(ca).toLowerCase());
+  if (q) {
+    const needle = String(q).toLowerCase();
+    list = list.filter(c => `${c.serial} ${(c.sanDomains || []).join(' ')} ${c.commonName || ''} ${c.caName || ''} ${c.issuedViaTokenName || ''} ${c.sha256Fingerprint || ''}`.toLowerCase().includes(needle));
+  }
+  if (status === 'expired') list = list.filter(c => c.expired);
+  else if (status) list = list.filter(c => c.status === status);
+  if (expiringDays) {
+    const n = Math.max(1, parseInt(expiringDays, 10) || 30);
+    list = list.filter(c => c.status === 'valid' && c.daysRemaining !== null && c.daysRemaining >= 0 && c.daysRemaining <= n);
+  }
+  const lim = Math.max(1, Math.min(500, parseInt(limit, 10) || 200));
+  const off = Math.max(0, parseInt(offset, 10) || 0);
+  const cas = [...new Set((db.certificates || []).map(c => c.caName).filter(Boolean))];
+  const issuers = [...new Set((db.certificates || []).map(c => c.issuedViaTokenName).filter(Boolean))];
+  res.json({ success: true, total: list.length, limit: lim, offset: off, entries: list.slice(off, off + lim), filterOptions: { cas, issuers } });
+});
+
+// Certificate detail (record + file presence + live openssl text)
+app.get('/api/admin/certificates/:serial', authMiddleware, (req, res) => {
+  const db = getLocalDB();
+  const clean = String(req.params.serial).replace(/[^a-fA-F0-9]/g, '').toLowerCase();
+  const cert = (db.certificates || []).find(c => String(c.serial).toLowerCase() === clean);
+  if (!cert) return sendError(res, 404, 'NOT_FOUND', `Certificate 0x${clean} not found.`);
+  const enriched = enrichCert(db, cert);
+  const leaf = path.join(CERTS_DIR, `${cert.id}.crt`);
+  if (fs.existsSync(leaf)) {
+    try { enriched.opensslText = execFileSync('openssl', ['x509', '-in', leaf, '-noout', '-text'], { stdio: 'pipe' }).toString().slice(0, 12000); }
+    catch (e) { enriched.opensslText = null; }
+  }
+  res.json({ success: true, certificate: enriched });
+});
+
+// Download leaf or chain PEM for a serial
+app.get('/api/admin/certificates/:serial/download', authMiddleware, (req, res) => {
+  const db = getLocalDB();
+  const clean = String(req.params.serial).replace(/[^a-fA-F0-9]/g, '').toLowerCase();
+  const cert = (db.certificates || []).find(c => String(c.serial).toLowerCase() === clean);
+  if (!cert) return sendError(res, 404, 'NOT_FOUND', `Certificate 0x${clean} not found.`);
+  const kind = req.query.kind === 'chain' ? 'chain' : 'leaf';
+  const file = path.join(CERTS_DIR, kind === 'chain' ? `${cert.id}-chain.crt` : `${cert.id}.crt`);
+  if (!fs.existsSync(file)) return sendError(res, 404, 'NOT_FOUND', `Stored ${kind} PEM for 0x${clean} is missing from the data volume.`);
+  audit('cert.downloaded', { serial: clean, kind }, req);
+  res.setHeader('Content-Type', 'application/x-pem-file');
+  res.setHeader('Content-Disposition', `attachment; filename="${clean}-${kind}.pem"`);
+  res.send(fs.readFileSync(file, 'utf8'));
+});
+
+// Renew: same SANs + same CA, new key/serial; old marked renewed (superseded, NOT CRL-listed)
+app.post('/api/admin/certificates/:serial/renew', authMiddleware, async (req, res) => {
+  const db = getLocalDB();
+  const clean = String(req.params.serial).replace(/[^a-fA-F0-9]/g, '').toLowerCase();
+  const cert = (db.certificates || []).find(c => String(c.serial).toLowerCase() === clean);
+  if (!cert) return sendError(res, 404, 'NOT_FOUND', `Certificate 0x${clean} not found.`);
+  if (cert.status === 'revoked') return sendError(res, 400, 'VALIDATION_ERROR', `Certificate 0x${clean} is revoked and cannot be renewed. Issue a fresh certificate instead.`);
+  if (cert.status === 'renewed') return sendError(res, 400, 'VALIDATION_ERROR', `Certificate 0x${clean} was already renewed (see serial 0x${cert.supersededBy || '?'}).`);
+  const daysNum = Math.max(1, Math.min(825, parseInt((req.body || {}).days, 10) || cert.days || 90));
+  const opId = uuidv4();
+  const tempKey = path.join('/tmp', `${opId}.key`);
+  const tempCsr = path.join('/tmp', `${opId}.csr`);
+  try {
+    const cn = (cert.commonName || (cert.sanDomains || [])[0] || 'renewed').replace(/[^a-zA-Z0-9.\-_]/g, '').slice(0, 253) || 'renewed';
+    execFileSync('openssl', ['genrsa', '-out', tempKey, '2048'], { stdio: 'pipe' });
+    execFileSync('openssl', ['req', '-new', '-key', tempKey, '-out', tempCsr, '-subj', `/CN=${cn}`], { stdio: 'pipe' });
+    const csrPem = fs.readFileSync(tempCsr, 'utf8');
+    const privateKey = fs.readFileSync(tempKey, 'utf8');
+    const oldSerial = clean;
+    const result = await signLeafCertificate(csrPem, cert.sanDomains || [cn], daysNum, { id: 'admin-ui', name: 'Admin UI' }, getPublicBase(req), { ca: cert.caName });
+    try { fs.unlinkSync(tempKey); fs.unlinkSync(tempCsr); } catch (e) {}
+    // Re-read: signing saved the new cert; the `db`/`cert` objects above are stale.
+    const db2 = getLocalDB();
+    const old = (db2.certificates || []).find(c => String(c.serial).toLowerCase() === oldSerial);
+    if (old) {
+      old.status = 'renewed';
+      old.renewedAt = new Date().toISOString();
+      old.supersededBy = result.serial;
+      saveLocalDB(db2);
+    }
+    audit('cert.renewed', { oldSerial, newSerial: result.serial, cn }, req);
+    logger.info('cert.renewed', { oldSerial, newSerial: result.serial });
+    res.json({ success: true, code: 'RENEWED', oldSerial: clean, newSerial: result.serial, serial: result.serial, privateKey, certificate: result.certificate, fullChain: result.fullChain, caName: result.caName, caSelection: result.selectionReason, expiresAt: new Date(Date.now() + daysNum * 86400000).toISOString() });
+  } catch (err) {
+    try { fs.unlinkSync(tempKey); fs.unlinkSync(tempCsr); } catch (e) {}
+    logger.error('cert.renew_failed', { serial: clean, error: err.message, code: err.code });
+    if (err.code === 'CA_NOT_AVAILABLE') {
+      return res.status(503).json({ success: false, code: 'CA_NOT_AVAILABLE', error: err.message, hint: 'The original signing CA is gone. Import it again or renew into another CA via Issue tab.', setupUrl: '/onboarding' });
+    }
+    return sendError(res, err.httpStatus || 500, err.code || 'INTERNAL_ERROR', err.message);
+  }
 });
 
 // Direct UI Certificate Generator (Create Key + CSR + Sign in one go)
@@ -1088,16 +1238,30 @@ function regenerateCrl(db, activeCA) {
   const crlFile = path.join(CRL_DIR, `${activeCA.name}.crl`);
   const caIndex = path.join(DATA_DIR, 'index.txt');
   const caSerial = path.join(DATA_DIR, 'crlnumber');
+  const serialFile = path.join(DATA_DIR, 'serial');
   const cnfFile = path.join(DATA_DIR, 'crl_openssl.cnf');
   const tempCaCert = path.join('/tmp', `crl-${activeCA.id}.crt`);
   const tempCaKey = path.join('/tmp', `crl-${activeCA.id}.key`);
   if (!fs.existsSync(caIndex)) fs.writeFileSync(caIndex, '');
   if (!fs.existsSync(caSerial)) fs.writeFileSync(caSerial, '1000\n');
+  if (!fs.existsSync(serialFile)) fs.writeFileSync(serialFile, '1000\n');
   fs.writeFileSync(tempCaCert, activeCA.certPem);
   fs.writeFileSync(tempCaKey, decryptData(activeCA.encryptedKeyPem), { mode: 0o600 });
-  fs.writeFileSync(cnfFile, `[ ca ]\ndefault_ca = CA_default\n[ CA_default ]\ndatabase = ${caIndex}\ncrlnumber = ${caSerial}\ndefault_md = sha256\ndefault_crl_days = 30\n`);
-  execFileSync('openssl', ['ca', '-gencrl', '-keyfile', tempCaKey, '-cert', tempCaCert, '-config', cnfFile, '-out', crlFile], { stdio: 'pipe' });
-  try { fs.unlinkSync(tempCaCert); fs.unlinkSync(tempCaKey); } catch (e) {}
+  // Full minimal CA config: `openssl ca -gencrl` refuses sparse configs on some builds.
+  // Forward slashes: backslashes break openssl's config parser on Windows builds.
+  const fx = (p) => String(p).replace(/\\/g, '/');
+  fs.writeFileSync(cnfFile, [
+    '[ ca ]', 'default_ca = CA_default', '[ CA_default ]',
+    `database = ${fx(caIndex)}`, `crlnumber = ${fx(caSerial)}`, `serial = ${fx(serialFile)}`,
+    `new_certs_dir = ${fx(DATA_DIR)}`, `certificate = ${fx(tempCaCert)}`, `private_key = ${fx(tempCaKey)}`,
+    'default_md = sha256', 'default_days = 365', 'default_crl_days = 30',
+    'policy = policy_any', '[ policy_any ]', 'commonName = supplied'
+  ].join('\n'));
+  try {
+    execFileSync('openssl', ['ca', '-gencrl', '-keyfile', tempCaKey, '-cert', tempCaCert, '-config', cnfFile, '-out', crlFile], { stdio: 'pipe' });
+  } finally {
+    try { fs.unlinkSync(tempCaCert); fs.unlinkSync(tempCaKey); } catch (e) {}
+  }
   return crlFile;
 }
 

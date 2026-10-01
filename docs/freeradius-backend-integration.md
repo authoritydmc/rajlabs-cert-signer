@@ -56,7 +56,29 @@ if (!d.success) {
 // d.certificate, d.fullChain/chain, d.serialNumber/serial, d.caName, d.caSelection, d.expiresAt
 ```
 
-## 4. Revoke (single + bulk, e.g. offboarded APs)
+## 4. Lifecycle: detail, download, renew, revoke (admin Bearer)
+
+```js
+// Filtered inventory (server-side): ?status=valid|revoked|renewed|expired
+//   &ca=int-wifi &q=text &expiringDays=30 &limit=&offset=
+// → { success, total, entries: [{ serial, commonName, sanDomains, caName,
+//     caSelection, daysRemaining, expired, expiresAt, sha256Fingerprint,
+//     status, issuedViaTokenName, issuedAt, supersededBy, hasLeafFile, hasChainFile }] }
+GET /api/admin/certificates?…
+
+// Detail incl. live openssl text + file presence
+GET /api/admin/certificates/:serial
+// → { success, certificate: { …, opensslText } }
+
+// PEM download (audited as cert.downloaded)
+GET /api/admin/certificates/:serial/download?kind=leaf|chain
+
+// Renew: fresh key + serial, same SANs + same CA; old → status renewed
+// (superseded, NOT CRL-listed). Returns new privateKey — show once!
+POST /api/admin/certificates/:serial/renew  { days }
+```
+
+## 5. Revoke (single + bulk, e.g. offboarded APs)
 
 ```js
 await fetch(`${BASE}/api/v1/revoke`, { method: 'POST', headers,
@@ -68,7 +90,7 @@ await fetch(`${BASE}/api/v1/revoke-bulk`, { method: 'POST', headers,
 // → { success, code: 'BULK_REVOKED', revoked, alreadyRevoked, notFound, crlRegenerated }
 ```
 
-## 5. CA routing (purpose-based)
+## 6. CA routing (purpose-based)
 
 `POST /api/v1/sign` and `/api/admin/generate-cert` accept:
 
@@ -81,7 +103,7 @@ Resolution: explicit → purpose map → active CA → `int-server` → first us
 Response echoes `caName` + `caSelection` (e.g. `purpose:wifi→int-wifi`).
 FreeRADIUS should pass `purpose: 'radius'` and display `caSelection` in its UI.
 
-## 6. Error envelope (all APIs)
+## 7. Error envelope (all APIs)
 
 ```json
 { "success": false, "code": "CA_NOT_AVAILABLE", "error": "…actionable message…",
@@ -93,7 +115,7 @@ Codes: `CA_NOT_AVAILABLE` (503, nothing to sign with), `VALIDATION_ERROR` (400),
 `SIGNING_FAILED` (422, bad CSR), `ALREADY_REVOKED`/`REVOKED`/`BULK_REVOKED`,
 `INTERNAL_ERROR` (500), `PARSE_ERROR`.
 
-## 7. Coolify path-routing note (why logins failed before)
+## 8. Coolify path-routing note (why logins failed before)
 
 The signer UI must call the signer API under the **same sub-path**
 (`$BASE/api/…`, never bare `/api/…`). The rebuilt UI auto-detects `BASE_PATH`
