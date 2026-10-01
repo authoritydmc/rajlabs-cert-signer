@@ -187,6 +187,12 @@
           <div><h1 class="text-2xl font-extrabold">Issued Certificates</h1><p class="text-sm text-slate-400">Select rows for bulk revoke.</p></div>
           <div class="flex gap-2"><button onclick="bulkRevokeCerts()" class="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white">🚫 Revoke Selected</button><button onclick="loadCerts()" class="rounded-lg border border-slate-600 px-4 py-2 text-sm">↻</button></div>
         </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4 mb-4">
+          <div class="flex flex-wrap gap-2">
+            <input id="cert-search" oninput="renderCerts()" placeholder="🔍 Filter by serial, SAN, CA, key name…" class="w-full max-w-md rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" />
+            <select id="cert-status-filter" onchange="renderCerts()" class="rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm"><option value="">All statuses</option><option value="valid">valid</option><option value="revoked">revoked</option></select>
+          </div>
+        </div>
         <div class="rounded-xl border border-slate-800 bg-slate-900 p-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="text-slate-400"><th class="p-2"><input type="checkbox" onchange="toggleAllCerts(this.checked)" /></th><th class="p-2">Serial</th><th class="p-2">CA</th><th class="p-2">SANs</th><th class="p-2">Via</th><th class="p-2">Issued</th><th class="p-2">Status</th><th class="p-2"></th></tr></thead><tbody id="cert-table-body"></tbody></table></div>
       </div>
 
@@ -246,7 +252,9 @@
           </div>
           <div id="audit-counts" class="mt-3 flex flex-wrap gap-1.5 text-[11px]"></div>
         </div>
-        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="text-slate-400"><th class="p-2">Time</th><th class="p-2">Event</th><th class="p-2">Actor</th><th class="p-2">IP</th><th class="p-2">Details</th></tr></thead><tbody id="audit-table-body"><tr><td colspan="5" class="p-4 text-center text-slate-500">Press Refresh…</td></tr></tbody></table></div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="text-slate-400"><th class="p-2">Time</th><th class="p-2">Event</th><th class="p-2">Actor</th><th class="p-2">IP</th><th class="p-2">Details</th></tr></thead><tbody id="audit-table-body"><tr><td colspan="5" class="p-4 text-center text-slate-500">Press Refresh…</td></tr></tbody></table>
+          <div class="mt-3 flex items-center justify-between"><span id="audit-page-info" class="text-xs text-slate-500"></span><button id="audit-more-btn" onclick="loadAuditMore()" class="hidden rounded-lg border border-slate-600 px-3 py-1.5 text-xs">Load more ↓</button></div>
+        </div>
       </div>
 
       <!-- SETTINGS -->
@@ -456,14 +464,22 @@
   }
 
   async function loadCAs() {
-    const res = await apiFetch('/api/admin/intermediate-cas', { headers: authH() });
-    const list = await res.json();
+    const [caRes, certRes, stRes] = await Promise.all([
+      apiFetch('/api/admin/intermediate-cas', { headers: authH() }),
+      apiFetch('/api/admin/certificates', { headers: authH() }).catch(() => null),
+      apiFetch('/api/v1/status').catch(() => null)
+    ]);
+    const list = await caRes.json();
+    const certs = certRes ? await certRes.json().catch(() => []) : [];
+    const st = stRes ? await stRes.json().catch(() => null) : null;
+    const perCA = {};
+    (Array.isArray(certs) ? certs : []).forEach(c => { perCA[c.caName] = (perCA[c.caName] || 0) + 1; });
     document.getElementById('ca-table-body').innerHTML = (Array.isArray(list) ? list : []).map(ca => `
       <tr class="border-t border-slate-800">
-        <td class="p-2 font-bold">${ca.name}</td>
+        <td class="p-2 font-bold">${ca.name}<div class="text-[11px] font-normal text-slate-500">${perCA[ca.name] || 0} cert(s) signed</div></td>
         <td class="p-2 text-slate-400">${ca.description || '-'}</td>
         <td class="p-2"><span class="rounded bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">Encrypted</span></td>
-        <td class="p-2">${ca.isActive ? '<span class="rounded bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">Active</span>' : '<span class="text-slate-500 text-xs">Standby</span>'}</td>
+        <td class="p-2">${ca.isActive ? '<span class="rounded bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">Active</span>' : '<span class="text-slate-500 text-xs">Standby</span>'}${st && st.crl && ca.isActive ? (st.crl.exists ? '<div class="text-[11px] text-emerald-400">CRL ✅</div>' : '<div class="text-[11px] text-amber-300">CRL pending</div>') : ''}</td>
         <td class="p-2 whitespace-nowrap">${ca.isActive ? '' : `<button class="rounded border border-slate-600 px-2 py-1 text-xs" onclick="activateCA('${ca.id}')">Make active</button> `}<button class="rounded border border-red-500/50 px-2 py-1 text-xs text-red-300" onclick="deleteCA('${ca.id}')">Delete</button></td>
       </tr>`).join('');
   }
@@ -491,10 +507,22 @@
     }
   }
 
+  let cachedCerts = [];
   async function loadCerts() {
     const res = await apiFetch('/api/admin/certificates', { headers: authH() });
     const certs = await res.json();
-    document.getElementById('cert-table-body').innerHTML = (Array.isArray(certs) ? certs : []).map(c => `
+    cachedCerts = Array.isArray(certs) ? certs : [];
+    renderCerts();
+  }
+  function renderCerts() {
+    const q = (document.getElementById('cert-search').value || '').toLowerCase();
+    const st = document.getElementById('cert-status-filter').value;
+    const rows = cachedCerts.filter(c => {
+      if (st && c.status !== st) return false;
+      if (!q) return true;
+      return `${c.serial} ${(c.sanDomains || []).join(' ')} ${c.caName || ''} ${c.issuedViaTokenName || ''}`.toLowerCase().includes(q);
+    });
+    document.getElementById('cert-table-body').innerHTML = rows.length ? rows.map(c => `
       <tr class="border-t border-slate-800">
         <td class="p-2"><input type="checkbox" class="cert-check" value="${c.serial}" /></td>
         <td class="p-2 mono text-xs">0x${c.serial}</td>
@@ -504,7 +532,7 @@
         <td class="p-2 text-xs text-slate-500">${c.issuedAt ? new Date(c.issuedAt).toLocaleString() : '-'}</td>
         <td class="p-2">${c.status === 'revoked' ? '<span class="rounded bg-red-500/15 px-2 py-0.5 text-xs text-red-300">revoked</span>' : '<span class="rounded bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">valid</span>'}</td>
         <td class="p-2">${c.status === 'revoked' ? '' : `<button class="rounded border border-red-500/50 px-2 py-1 text-xs text-red-300" onclick="revokeCert('${c.serial}')">Revoke</button>`}</td>
-      </tr>`).join('');
+      </tr>`).join('') : '<tr><td colspan="8" class="p-4 text-center text-slate-500">No certificates match.</td></tr>';
   }
   function toggleAllCerts(v) { document.querySelectorAll('.cert-check').forEach(c => c.checked = v); }
   async function revokeCert(serial) {
@@ -563,8 +591,20 @@
   async function createApiToken() {
     const name = prompt('Token name (e.g. FreeRADIUS backend, Traefik):');
     if (!name) return;
-    await apiFetch('/api/admin/tokens', { method: 'POST', headers: authH(), body: JSON.stringify({ name }) });
-    loadTokens();
+    const exp = prompt('Expiry in days (blank = never expires):', '');
+    let expiresAt = null;
+    if (exp && exp.trim()) {
+      const n = parseInt(exp.trim(), 10);
+      if (!n || n < 1) { toast('Expiry must be a positive number of days', true); return; }
+      expiresAt = new Date(Date.now() + n * 86400000).toISOString();
+    }
+    const scopeAns = prompt('Scopes (comma-separated: sign, revoke). Blank = both:', 'sign,revoke') || 'sign,revoke';
+    const scopes = scopeAns.split(',').map(s => s.trim().toLowerCase()).filter(s => ['sign', 'revoke'].includes(s));
+    if (!scopes.length) { toast('At least one valid scope required (sign and/or revoke)', true); return; }
+    const r = await apiFetch('/api/admin/tokens', { method: 'POST', headers: authH(), body: JSON.stringify({ name, expiresAt, scopes }) });
+    const d = await r.json();
+    if (d.success) { toast(`Token created${expiresAt ? ', expires ' + new Date(expiresAt).toLocaleDateString() : ''} — copy the key now.`); loadTokens(); }
+    else toast(errMsg(d, 'Token creation failed'), true);
   }
   async function tokenAction(id, act) {
     await apiFetch(`/api/admin/tokens/${id}/${act}`, { method: 'POST', headers: authH() });
@@ -613,11 +653,35 @@
     if (d.active !== undefined) parts.push(`active=${d.active}`);
     return parts.join(' · ') || '<span class="text-slate-600">—</span>';
   }
+  let auditOffset = 0, auditTotal = 0, auditAccum = [];
+  function auditRow(e) {
+    return `
+        <tr class="border-t border-slate-800">
+          <td class="p-2 text-xs text-slate-400 whitespace-nowrap">${e.ts ? new Date(e.ts).toLocaleString() : '-'}</td>
+          <td class="p-2 text-xs whitespace-nowrap">${AUDIT_EVENT_LABELS[e.event] || e.event}</td>
+          <td class="p-2 text-xs">${e.actor || '—'}</td>
+          <td class="p-2 text-xs text-slate-500 mono">${e.ip || '—'}</td>
+          <td class="p-2 text-xs text-slate-300">${auditDetails(e)}</td>
+        </tr>`;
+  }
+  function paintAudit(append) {
+    document.getElementById('audit-table-body').innerHTML = auditAccum.length ? auditAccum.map(auditRow).join('') : '<tr><td colspan="5" class="p-4 text-center text-slate-500">No audit entries yet — logins, issuance and token changes will appear here.</td></tr>';
+    document.getElementById('audit-page-info').textContent = `showing ${auditAccum.length} of ${auditTotal}`;
+    document.getElementById('audit-more-btn').classList.toggle('hidden', auditAccum.length >= auditTotal);
+  }
   async function loadAudit() {
+    auditOffset = 0; auditAccum = [];
+    await fetchAuditPage(false);
+  }
+  async function loadAuditMore() {
+    auditOffset += parseInt(document.getElementById('audit-limit').value || '100', 10);
+    await fetchAuditPage(true);
+  }
+  async function fetchAuditPage(append) {
     const sel = document.getElementById('audit-event');
-    // Populate event dropdown once from server counts
     try {
-      const params = new URLSearchParams({ limit: document.getElementById('audit-limit').value || '100', offset: '0' });
+      const limit = document.getElementById('audit-limit').value || '100';
+      const params = new URLSearchParams({ limit, offset: String(append ? auditOffset : 0) });
       const ev = sel.value; if (ev) params.set('event', ev);
       const q = document.getElementById('audit-q').value.trim(); if (q) params.set('q', q);
       const res = await apiFetch('/api/admin/audit?' + params.toString(), { headers: authH() });
@@ -628,16 +692,11 @@
         sel.innerHTML = '<option value="">All events</option>' + Object.keys(d.eventCounts || {}).sort().map(e => `<option value="${e}">${AUDIT_EVENT_LABELS[e] || e} (${d.eventCounts[e]})</option>`).join('');
         sel.value = cur;
       }
-      document.getElementById('audit-counts').innerHTML = `<span class="text-slate-500">showing ${d.entries.length} of ${d.total}</span>` +
+      document.getElementById('audit-counts').innerHTML =
         Object.keys(d.eventCounts || {}).sort().map(e => `<button onclick="document.getElementById('audit-event').value='${e}';loadAudit()" class="rounded-full border border-slate-700 px-2 py-0.5 text-slate-300 hover:border-cyan-500">${AUDIT_EVENT_LABELS[e] || e} · ${d.eventCounts[e]}</button>`).join('');
-      document.getElementById('audit-table-body').innerHTML = d.entries.length ? d.entries.map(e => `
-        <tr class="border-t border-slate-800">
-          <td class="p-2 text-xs text-slate-400 whitespace-nowrap">${e.ts ? new Date(e.ts).toLocaleString() : '-'}</td>
-          <td class="p-2 text-xs whitespace-nowrap">${AUDIT_EVENT_LABELS[e.event] || e.event}</td>
-          <td class="p-2 text-xs">${e.actor || '—'}</td>
-          <td class="p-2 text-xs text-slate-500 mono">${e.ip || '—'}</td>
-          <td class="p-2 text-xs text-slate-300">${auditDetails(e)}</td>
-        </tr>`).join('') : '<tr><td colspan="5" class="p-4 text-center text-slate-500">No audit entries yet — logins, issuance and token changes will appear here.</td></tr>';
+      auditTotal = d.total;
+      auditAccum = append ? auditAccum.concat(d.entries) : d.entries;
+      paintAudit(append);
     } catch (e) { toast('Audit load failed: ' + e.message, true); }
   }
 
