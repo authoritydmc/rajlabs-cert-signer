@@ -18,3 +18,11 @@ Thumbs.db
 # Local testing mounts and secrets
 mounted-ca/
 secrets/
+
+# v2 build artifacts (built in Docker; never commit)
+frontend/node_modules/
+frontend/dist/
+backend/app/static/
+backend/app/__pycache__/
+backend/app/routers/__pycache__/
+*.pyc

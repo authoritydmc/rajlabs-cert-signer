@@ -1,6 +1,6 @@
 services:
   # -------------------------------------------------------------------
-  # 1. pki PKI Cert Signer (Web UI, ACME, REST API)
+  # Rajlabs PKI Cert Signer v2 (React UI + FastAPI engine + OpenSSL)
   # -------------------------------------------------------------------
   cert-signer:
     build:
@@ -12,45 +12,21 @@ services:
       - "${PORT:-9000}:9000"
     environment:
       - PORT=9000
-      - BASE_URL=${BASE_URL:-} # Optional override; unset = auto-detect per request (domain moves need no redeploy)
-      - BASE_PATH=${BASE_PATH:-} # e.g. /cert-signer behind path-based proxy, or "auto"
+      # Optional public URL override; unset = auto-detect per request.
+      - BASE_URL=${BASE_URL:-}
+      # Sub-path behind path-based proxy, e.g. /cert-signer, or "auto".
+      - BASE_PATH=${BASE_PATH:-}
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-} # Leave blank to auto-generate strong password
+      - AUTH_TOKEN=${AUTH_TOKEN:-}         # Optional legacy global API key
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-} # Master key for DB-stored intermediate keys
-      - DATABASE_URL=${DATABASE_URL:-}    # Optional: postgres://user:pass@postgres:5432/pki_pki
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - CORS_ORIGIN=${CORS_ORIGIN:-*}
     volumes:
-      # Data directory holding database, issued certs, serials, and admin_credentials.txt
+      # Persists database.json (incl. encrypted CA keys), issued certs,
+      # CRLs, and logs/audit.log across redeploys. Same files as v1.
       - cert_signer_data:/app/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-        required: false
-
-  # -------------------------------------------------------------------
-  # 2. PostgreSQL Database (Optional - Enabled if DATABASE_URL is set)
-  # -------------------------------------------------------------------
-  postgres:
-    image: postgres:16-alpine
-    container_name: pki-pki-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-pki}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pki_secure_db_pass_9988!}
-      POSTGRES_DB: ${POSTGRES_DB:-pki_pki}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pki}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    profiles:
-      - with-db
 
 volumes:
   cert_signer_data:
-    driver: local
-  postgres_data:
     driver: local

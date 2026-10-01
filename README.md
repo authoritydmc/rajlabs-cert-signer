@@ -2,6 +2,11 @@
 
 A containerized, **UI-based Certificate Authority, ACME Signer, and Certificate Inspector** designed for modern infrastructure, **Coolify**, and Docker deployments.
 
+> **v2 stack (current): React (Vite + Tailwind) frontend + FastAPI backend + OpenSSL.**
+> API contract is identical to v1, so existing `database.json` files (including
+> AES-256-GCM encrypted CA keys) and FreeRADIUS integrations migrate untouched.
+> The legacy Node engine (`signer-engine/`) was removed — v2 is the only stack.
+
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-06b6d4?style=flat&logo=github)](https://authoritydmc.github.io/rajlabs-cert-signer/)
 [![Docker Ready](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat&logo=docker)](Dockerfile)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -44,11 +49,11 @@ This system enforces strict Zero-Trust PKI principles:
 │              Enterprise Cert Signer Container (Coolify)         │
 │                                                                 │
 │  ┌───────────────────────┐   ┌───────────────────────────────┐  │
-│  │ Web Admin UI (:9000)  │   │  ACME & REST Engine (:9000)   │  │
+│  │ React Admin UI (:9000) │   │  FastAPI Engine (:9000)       │  │
 │  │ ├─ AES-256 DB Vault   │   │  ├─ RFC 8555 /acme/directory  │  │
 │  │ ├─ Token Management   │   │  ├─ POST /api/v1/sign         │  │
 │  │ ├─ Cert/CSR Inspector │   │  ├─ Full CA Chain Bundler     │  │
-│  │ └─ SQLite / Postgres  │   │  └─ Real-Time PKIX CRL Engine │  │
+│  │ └─ JSON Store + Audit │   │  └─ Real-Time PKIX CRL Engine │  │
 │  └───────────────────────┘   └───────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -59,13 +64,16 @@ This system enforces strict Zero-Trust PKI principles:
 
 If you are an AI assistant, automation bot, or developer integrating with this repository, keep these rules and endpoints in mind:
 
-- **Signer Engine Location**: `/signer-engine` (Node.js native backend + OpenSSL engine).
+- **Backend Location**: `/backend` (FastAPI + OpenSSL engine, single uvicorn worker).
+- **Frontend Location**: `/frontend` (React + Vite + Tailwind, built into `backend/app/static` by Docker).
 - **Default Port**: `9000` (HTTP).
-- **Default Database**: SQLite at `/app/data/pki_vault.sqlite`. Seamlessly switches to PostgreSQL if `DATABASE_URL` is set.
+- **Default Database**: JSON at `/app/data/database.json` (same schema as v1 — redeploy and your CAs, tokens, certs, and audit log persist).
 - **Admin Password Configuration**:
-  - Set via env: `ADMIN_PASSWORD=YourStrongPasswordHere` (recommended for headless deployments).
+  - Set via env: `ADMIN_PASSWORD=YourStrongPasswordHere` (recommended for headless deployments, re-applied from env on every boot).
   - If unset, a random password is generated and saved to `/app/data/admin_credentials.txt`.
 - **API Token Header**: Pass API tokens using `x-api-key: <token>` or `Authorization: Bearer <token>`.
+- **Sub-path Hosting**: set `BASE_PATH=/cert-signer` (or `auto`); leave `BASE_URL` unset for per-request auto-detect.
+- **Startup Self-Check**: the server refuses to boot if any required route is unregistered (fail-fast, logged as `server.routes_missing`).
 - **Root Key Sanitization**: Never write or commit any `.key` or `.key.pem` files.
 - **Safety Overwrites**: Offline scripts require `-ForceOverwrite` or `--force-overwrite` to overwrite existing Root CAs.
 
@@ -76,10 +84,8 @@ If you are an AI assistant, automation bot, or developer integrating with this r
 - 🖥️ **Tailwind Modern Web UI**: Responsive dark-mode dashboard with real-time stats, intermediate CA management, certificate viewer, and tutorials.
 - ⚡ **1-Click Onboarding Generator**: Issue both Root CA and Intermediate CA directly in memory on first boot without command-line dependencies.
 - 🔍 **Interactive Certificate & CSR Inspector**: Drag & drop or paste any PEM/CRT/CSR file to view Subject, Issuer, SAN badges, validity meters, key usage, and raw dumps.
-- 🗄️ **Zero-Config Dual-Database Engine**:
-  - Built-in SQLite database requiring zero setup.
-  - Full PostgreSQL support for high-availability enterprise clusters via `DATABASE_URL`.
-- 🔑 **API Token Management**: Provision scoped API keys with 1 click for CI/CD pipelines, Kubernetes cert-manager, or Traefik.
+- 🗄️ **Zero-Config JSON Store**: single `database.json` (CAs, tokens, certs, audit) — zero setup, same file as v1.
+- 🔑 **API Token Management**: scoped, expiring, usage-tracked API keys with bulk revoke/restore/delete for CI/CD, Traefik, and FreeRADIUS backends.
 - 📜 **Automated Full-Chain Assembly**: Emits `ca-chain.crt` bundling `[Leaf + Intermediate + Root]` to eliminate client-side `SEC_ERROR_UNKNOWN_ISSUER` errors.
 - 🔄 **Real-Time CRL Generation**: Automated `openssl ca -gencrl` on revocations, served with standard `application/pkix-crl` headers at `/crl/<ca-name>.crl`.
 
@@ -92,14 +98,14 @@ If you are an AI assistant, automation bot, or developer integrating with this r
 Ideal for immediate Docker / Coolify deployments:
 1. Boot the container and access `http://<your-host>:9000`.
 2. On first run, the interactive onboarding modal opens automatically.
-3. Select **⚡ 1-Click Generate PKI Now**.
-4. Enter your Organization Name (e.g. `MyCompany`), Country, and Intermediate Signer Name.
-5. Click **Generate PKI & Auto-Configure Signer**:
-   - The engine generates a 4096-bit RSA Root CA and Intermediate CA in memory.
-   - The Intermediate CA private key is **automatically encrypted using AES-256-GCM** and saved into the database.
+3. Fill Organization, Country, State, City, key size (2048/3072/4096), Root/intermediate validity, and tick the intermediate CAs to create (`int-server`, `int-wifi`, `int-iot`, plus optional custom).
+4. Click **Generate PKI & Auto-Configure Signer**:
+   - The engine generates the RSA Root CA plus every selected intermediate.
+   - Each intermediate private key is **automatically encrypted using AES-256-GCM** and saved into the database (first selected becomes active).
    - The **Root CA private key is delivered to your browser for a one-time download**.
    - **The server immediately and permanently shreds the Root CA private key from memory and disk.**
-6. Save your downloaded `root-ca.key.pem` to an offline flash drive or cold vault.
+5. Save your downloaded `root-ca.key.pem` to an offline flash drive or cold vault.
+6. Reopen the wizard anytime via **🧙 Setup Wizard** or `/onboarding`.
 
 ---
 
@@ -169,10 +175,13 @@ volumes:
 4. Set **Port** to `9000`.
 5. Under **Storage**, add a persistent volume:
    - **Mount Path**: `/app/data`
-6. Under **Environment Variables**, optionally set:
-   - `ADMIN_PASSWORD=<YourSecurePassword>`
-   - `DATABASE_URL=postgres://...` (Optional, defaults to SQLite)
-7. Click **Deploy**.
+6. Under **Environment Variables**, set:
+   - `ADMIN_PASSWORD=<YourSecurePassword>` (required for reliable sign-in)
+   - `BASE_PATH=/cert-signer` (only if serving under a sub-path; else leave empty)
+   - `ENCRYPTION_KEY=<long-random-string>` (recommended for key-at-rest encryption)
+   - `LOG_LEVEL=info` (or `debug`)
+   - `CORS_ORIGIN=https://backend.rajlabs.in` (optional, defaults to `*`)
+7. Click **Deploy**. Healthcheck: `GET /health`; integration probe: `GET /api/v1/status`.
 
 ---
 
@@ -335,39 +344,29 @@ When intermediate CAs are imported or generated, their private keys are encrypte
 - **Key Derivation**: SHA-256 digest of container vault secret (`VAULT_SECRET_KEY` or auto-generated machine secret).
 - **IV & Auth Tag**: Unique 16-byte IV and 16-byte authentication tag per record.
 
-### Inbuilt SQLite Architecture
-```sql
-CREATE TABLE intermediate_cas (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT,
-  cert_pem TEXT NOT NULL,
-  encrypted_key_pem TEXT NOT NULL,
-  root_cert_pem TEXT NOT NULL,
-  is_active INTEGER DEFAULT 0,
-  created_at TEXT NOT NULL
-);
+### JSON Store Layout (`/app/data/database.json`)
 
-CREATE TABLE api_tokens (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  token TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-
-CREATE TABLE issued_certs (
-  serial TEXT PRIMARY KEY,
-  common_name TEXT NOT NULL,
-  san TEXT NOT NULL,
-  intermediate_id TEXT NOT NULL,
-  cert_pem TEXT NOT NULL,
-  full_chain_pem TEXT NOT NULL,
-  revoked INTEGER DEFAULT 0,
-  revoked_at TEXT,
-  revocation_reason TEXT,
-  created_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL
-);
+```jsonc
+{
+  "config": { "adminUser": "admin", "profile": { "...": "..." } },
+  "intermediateCAs": [
+    { "id": "...", "name": "int-server", "certPem": "...",
+      "encryptedKeyPem": "iv:tag:ct (AES-256-GCM hex)", "rootCertPem": "...",
+      "isActive": true, "createdAt": "..." }
+  ],
+  "apiTokens": [
+    { "id": "...", "name": "...", "token": "cert_...",
+      "scopes": ["sign", "revoke"], "expiresAt": null,
+      "revoked": false, "usageCount": 3, "createdAt": "..." }
+  ],
+  "certificates": [
+    { "id": "...", "serial": "07d0", "caName": "int-server",
+      "sanDomains": ["..."], "status": "valid|revoked|renewed",
+      "issuedAt": "...", "expiresAt": "...", "sha256Fingerprint": "...",
+      "issuedViaTokenId": "..." }
+  ],
+  "serial": 2000
+}
 ```
 
 ---

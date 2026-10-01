@@ -1,5 +1,8 @@
 # FreeRADIUS / backend.rajlabs.in ↔ Cert Signer Integration
 
+> v2 (FastAPI + React) keeps this contract byte-identical to v1 — no backend changes needed when upgrading.
+
+
 Single contract so the backend admin "Certificates" tab always shows the same
 state as the signer UI's **💓 Connection Status** tab.
 

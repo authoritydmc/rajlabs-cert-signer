@@ -1,0 +1,12 @@
+.git
+.github
+data
+node_modules
+frontend/node_modules
+frontend/dist
+backend/app/static
+__pycache__
+*.pyc
+mounted-ca
+secrets
+.env
