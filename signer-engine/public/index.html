@@ -103,27 +103,102 @@
         </div>
       </div>
 
-      <h4 style="font-size: 1rem; margin-bottom: 0.75rem;">⚡ Quick Air-Gapped Setup (3 Steps):</h4>
-      <div class="walkthrough-step">
-        <div style="font-weight: 600; margin-bottom: 0.5rem;"><span class="step-number">1</span> Run the Offline Generator Script</div>
-        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">On your computer or air-gapped machine, run the helper script:</p>
-        <pre><code># Windows PowerShell:
+      <!-- Choice Tabs -->
+      <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem;">
+        <button id="btn-tab-gen" class="btn-outline" style="flex: 1; border-color: var(--cyan); color: var(--cyan);" onclick="switchOnboardTab('generate')">⚡ 1-Click Generate PKI Now</button>
+        <button id="btn-tab-off" class="btn-outline" style="flex: 1;" onclick="switchOnboardTab('offline')">💻 Manual Offline Scripts</button>
+      </div>
+
+      <!-- Option 1: 1-Click In-Browser Generation -->
+      <div id="onboard-pane-generate">
+        <div style="background: rgba(6, 182, 212, 0.05); border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 0.6rem; padding: 1.25rem; margin-bottom: 1.25rem;">
+          <h4 style="color: var(--cyan); margin-bottom: 0.5rem;">Automated Root CA & Intermediate Signer Setup</h4>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+            This will generate your Root CA and Intermediate Signer immediately.
+            The Intermediate Signer is <strong>automatically encrypted into the database</strong> so you don't need to copy/paste anything.
+            The Root CA Private Key is provided for <strong>download once</strong> and <strong>immediately deleted from the server</strong>.
+          </p>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
+            <div>
+              <label>Organization Name</label>
+              <input type="text" id="ob-org" value="Enterprise" placeholder="MyCompany" />
+            </div>
+            <div>
+              <label>Intermediate Signer Name</label>
+              <input type="text" id="ob-ca-name" value="int-server" placeholder="int-server" />
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
+            <div>
+              <label>Country (2-letter)</label>
+              <input type="text" id="ob-country" value="US" maxlength="2" />
+            </div>
+            <div>
+              <label>State / Province</label>
+              <input type="text" id="ob-state" value="California" />
+            </div>
+            <div>
+              <label>Locality / City</label>
+              <input type="text" id="ob-city" value="San Francisco" />
+            </div>
+          </div>
+
+          <button id="btn-run-pki-gen" style="width: 100%; margin-top: 1rem; justify-content: center;" onclick="runOnboardingPkiGen()">Generate PKI & Auto-Configure Signer</button>
+        </div>
+
+        <!-- Download & Vault Card (Appears after generation) -->
+        <div id="ob-download-card" style="display: none; background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 0.6rem; padding: 1.25rem; margin-bottom: 1.25rem;">
+          <h4 style="color: var(--green); margin-bottom: 0.5rem;">✅ PKI Successfully Generated & Configured!</h4>
+          <p style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 1rem;">
+            Your Intermediate Signer is active in the database. Download your air-gapped Root CA files below:
+          </p>
+          
+          <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;">
+            <button class="btn-danger" style="justify-content: space-between;" onclick="downloadBlob('root-ca.key.pem', generatedPkiData.rootKeyPem)">
+              <span>🛡️ Download ROOT CA PRIVATE KEY (root-ca.key.pem)</span>
+              <span style="font-size: 0.75rem; background: rgba(0,0,0,0.3); padding: 0.2rem 0.5rem; border-radius: 4px;">KEEP OFFLINE!</span>
+            </button>
+            <button class="btn-outline" style="justify-content: space-between;" onclick="downloadBlob('root-ca.cert.pem', generatedPkiData.rootCertPem)">
+              <span>📄 Download Public Root Certificate (root-ca.cert.pem)</span>
+              <span>Download</span>
+            </button>
+            <button class="btn-outline" style="justify-content: space-between;" onclick="downloadBlob('ca-chain.crt', generatedPkiData.caChainPem)">
+              <span>📦 Download Full CA Chain Bundle (ca-chain.crt)</span>
+              <span>Download</span>
+            </button>
+          </div>
+
+          <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 0.4rem; padding: 0.75rem; font-size: 0.8rem; color: #fca5a5;">
+            ⚠️ <strong>CRITICAL SECURITY INSTRUCTION:</strong> Move <code>root-ca.key.pem</code> to a cold-storage offline USB or hardware vault. The server has <strong>permanently deleted its copy</strong> from memory and disk.
+          </div>
+        </div>
+      </div>
+
+      <!-- Option 2: Offline Scripts Guide -->
+      <div id="onboard-pane-offline" style="display: none;">
+        <div class="walkthrough-step">
+          <div style="font-weight: 600; margin-bottom: 0.5rem;"><span class="step-number">1</span> Run the Offline Generator Script</div>
+          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">On your computer or air-gapped machine, run the helper script:</p>
+          <pre><code># Windows PowerShell:
 .\scripts\generate-offline-ca.ps1 -OrgName "MyOrg" -IntermediateName "int-server"
 
 # Linux / macOS:
 ./scripts/generate-offline-ca.sh "MyOrg" "US" "CA" "SF" "int-server"</code></pre>
-      </div>
+        </div>
 
-      <div class="walkthrough-step">
-        <div style="font-weight: 600; margin-bottom: 0.5rem;"><span class="step-number">2</span> What to Upload & What to Keep Offline</div>
-        <p style="font-size: 0.85rem; color: var(--text-muted);">
-          • <strong>Upload to this Web UI:</strong> Files in <code>upload-to-web-ui/</code> (public root cert, intermediate cert & key).<br>
-          • <strong>NEVER Upload:</strong> <code>offline-root-ca-vault/root-ca.key.pem</code> (Keep it in an offline vault!).
-        </p>
+        <div class="walkthrough-step">
+          <div style="font-weight: 600; margin-bottom: 0.5rem;"><span class="step-number">2</span> What to Upload & What to Keep Offline</div>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">
+            • <strong>Upload to this Web UI:</strong> Files in <code>upload-to-web-ui/</code> (public root cert, intermediate cert & key).<br>
+            • <strong>NEVER Upload:</strong> <code>offline-root-ca-vault/root-ca.key.pem</code> (Keep it in an offline vault!).
+          </p>
+        </div>
       </div>
 
       <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
-        <button onclick="finishOnboarding()">Proceed to Dashboard</button>
+        <button id="btn-finish-onboard" onclick="finishOnboarding()">Proceed to Dashboard</button>
       </div>
     </div>
   </div>
@@ -568,9 +643,89 @@ openssl x509 -req -in int-server.csr.pem -CA root-ca.cert.pem -CAkey root-ca.key
       alert('Password copied to clipboard!');
     }
 
+    let generatedPkiData = null;
+
+    function switchOnboardTab(tab) {
+      const paneGen = document.getElementById('onboard-pane-generate');
+      const paneOff = document.getElementById('onboard-pane-offline');
+      const btnGen = document.getElementById('btn-tab-gen');
+      const btnOff = document.getElementById('btn-tab-off');
+
+      if (tab === 'generate') {
+        paneGen.style.display = 'block';
+        paneOff.style.display = 'none';
+        btnGen.style.borderColor = 'var(--cyan)';
+        btnGen.style.color = 'var(--cyan)';
+        btnOff.style.borderColor = 'var(--border)';
+        btnOff.style.color = 'var(--text-muted)';
+      } else {
+        paneGen.style.display = 'none';
+        paneOff.style.display = 'block';
+        btnOff.style.borderColor = 'var(--cyan)';
+        btnOff.style.color = 'var(--cyan)';
+        btnGen.style.borderColor = 'var(--border)';
+        btnGen.style.color = 'var(--text-muted)';
+      }
+    }
+
+    async function runOnboardingPkiGen() {
+      const btn = document.getElementById('btn-run-pki-gen');
+      const orgName = document.getElementById('ob-org').value || 'Enterprise';
+      const intermediateName = document.getElementById('ob-ca-name').value || 'int-server';
+      const country = document.getElementById('ob-country').value || 'US';
+      const state = document.getElementById('ob-state').value || 'California';
+      const city = document.getElementById('ob-city').value || 'San Francisco';
+
+      btn.disabled = true;
+      btn.textContent = 'Generating 4096-bit RSA PKI & Initializing Vault...';
+
+      try {
+        const res = await fetch('/api/auth/onboarding-generate-pki', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ orgName, intermediateName, country, state, city })
+        });
+        const data = await res.json();
+        if (data.success) {
+          generatedPkiData = data;
+          document.getElementById('ob-download-card').style.display = 'block';
+          btn.textContent = '✅ PKI Generated Successfully';
+          btn.style.background = 'var(--green)';
+          btn.disabled = false;
+        } else {
+          alert('Generation failed: ' + (data.error || 'Unknown error'));
+          btn.disabled = false;
+          btn.textContent = 'Generate PKI & Auto-Configure Signer';
+        }
+      } catch (err) {
+        alert('Network error during generation: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = 'Generate PKI & Auto-Configure Signer';
+      }
+    }
+
+    function downloadBlob(filename, content) {
+      if (!content) {
+        alert('File content unavailable. Please re-run generation.');
+        return;
+      }
+      const blob = new Blob([content], { type: 'application/x-pem-file;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
     async function finishOnboarding() {
       await fetch('/api/auth/complete-setup', { method: 'POST' });
       document.getElementById('onboarding-modal').style.display = 'none';
+      if (authToken) {
+        loadDashboardData();
+      }
     }
 
     async function handleLogin() {

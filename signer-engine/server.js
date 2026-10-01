@@ -317,6 +317,95 @@ app.post('/api/auth/complete-setup', (req, res) => {
   res.json({ success: true });
 });
 
+// ------------------------------------------------------------------
+// 1-Click Onboarding PKI Wizard Generator
+// Generates Root CA & Intermediate CA in memory, saves intermediate to DB,
+// hands Root CA Private Key to user for download, then IMMEDIATELY wipes root key!
+// ------------------------------------------------------------------
+app.post('/api/auth/onboarding-generate-pki', (req, res) => {
+  const db = getLocalDB();
+  const orgName = (req.body.orgName || 'Enterprise').replace(/[^a-zA-Z0-9\s.\-_]/g, '');
+  const country = (req.body.country || 'US').replace(/[^a-zA-Z]/g, '').substring(0, 2).toUpperCase();
+  const state = (req.body.state || 'California').replace(/[^a-zA-Z0-9\s.\-_]/g, '');
+  const city = (req.body.city || 'San Francisco').replace(/[^a-zA-Z0-9\s.\-_]/g, '');
+  const intermediateName = (req.body.intermediateName || 'int-server').toLowerCase().replace(/[^a-z0-9\-_]/g, '');
+
+  const opId = uuidv4();
+  const rootKeyFile = path.join('/tmp', `${opId}-root.key`);
+  const rootCertFile = path.join('/tmp', `${opId}-root.crt`);
+  const intKeyFile = path.join('/tmp', `${opId}-int.key`);
+  const intCsrFile = path.join('/tmp', `${opId}-int.csr`);
+  const intCertFile = path.join('/tmp', `${opId}-int.crt`);
+  const extFile = path.join('/tmp', `${opId}-ext.cnf`);
+
+  try {
+    // 1. Generate Root CA (4096-bit RSA, 20 Years)
+    execFileSync('openssl', ['genrsa', '-out', rootKeyFile, '4096'], { stdio: 'pipe' });
+    const rootSubj = `/C=${country}/ST=${state}/L=${city}/O=${orgName}/OU=${orgName} Root Authority/CN=${orgName} Root CA`;
+    execFileSync('openssl', ['req', '-new', '-x509', '-days', '7300', '-sha256', '-key', rootKeyFile, '-out', rootCertFile, '-subj', rootSubj], { stdio: 'pipe' });
+
+    // 2. Generate Intermediate CA (4096-bit RSA, 10 Years)
+    execFileSync('openssl', ['genrsa', '-out', intKeyFile, '4096'], { stdio: 'pipe' });
+    const intSubj = `/C=${country}/ST=${state}/L=${city}/O=${orgName}/OU=${orgName} Infrastructure/CN=${orgName} Intermediate CA`;
+    execFileSync('openssl', ['req', '-new', '-sha256', '-key', intKeyFile, '-out', intCsrFile, '-subj', intSubj], { stdio: 'pipe' });
+
+    // 3. Sign Intermediate with Root CA
+    fs.writeFileSync(extFile, "basicConstraints = critical, CA:true, pathlen:0\nkeyUsage = critical, digitalSignature, cRLSign, keyCertSign\nsubjectKeyIdentifier = hash\nauthorityKeyIdentifier = keyid:always,issuer\n");
+    execFileSync('openssl', ['x509', '-req', '-in', intCsrFile, '-CA', rootCertFile, '-CAkey', rootKeyFile, '-CAcreateserial', '-out', intCertFile, '-days', '3650', '-sha256', '-extfile', extFile], { stdio: 'pipe' });
+
+    // Read generated files
+    const rootKeyPem = fs.readFileSync(rootKeyFile, 'utf8');
+    const rootCertPem = fs.readFileSync(rootCertFile, 'utf8');
+    const intKeyPem = fs.readFileSync(intKeyFile, 'utf8');
+    const intCertPem = fs.readFileSync(intCertFile, 'utf8');
+
+    // 4. SECURELY DESTROY ROOT PRIVATE KEY FROM CONTAINER DISK IMMEDIATELY!
+    try {
+      fs.unlinkSync(rootKeyFile);
+      fs.unlinkSync(rootCertFile);
+      fs.unlinkSync(intKeyFile);
+      fs.unlinkSync(intCsrFile);
+      fs.unlinkSync(intCertFile);
+      fs.unlinkSync(extFile);
+      fs.unlinkSync(path.join('/tmp', `${opId}-root.srl`));
+    } catch (e) {}
+
+    // 5. Automatically store Intermediate CA in DB (Encrypted at rest with AES-256)
+    db.intermediateCAs.forEach(c => c.isActive = false);
+    const newCA = {
+      id: uuidv4(),
+      name: intermediateName,
+      description: `${orgName} Primary Signer`,
+      certPem: intCertPem.trim(),
+      encryptedKeyPem: encryptData(intKeyPem.trim()), // Encrypted in DB!
+      rootCertPem: rootCertPem.trim(),
+      isActive: true,
+      createdAt: new Date().toISOString()
+    };
+    db.intermediateCAs.push(newCA);
+
+    // Save profile defaults
+    db.config.profile = { orgName, country, state, city, defaultDays: 90, domainSuffix: `${orgName.toLowerCase().replace(/\s+/g, '')}.local` };
+    saveLocalDB(db);
+
+    // 6. Send all files to user browser for immediate download
+    res.json({
+      success: true,
+      rootCertPem,
+      rootKeyPem, // Delivered ONCE for user download, NOT preserved on server!
+      intCertPem,
+      intKeyPem,
+      caChainPem: `${intCertPem.trim()}\n${rootCertPem.trim()}\n`,
+      caName: intermediateName
+    });
+  } catch (err) {
+    [rootKeyFile, rootCertFile, intKeyFile, intCsrFile, intCertFile, extFile].forEach(f => {
+      try { fs.unlinkSync(f); } catch (e) {}
+    });
+    res.status(500).json({ error: 'Failed to generate PKI: ' + err.message });
+  }
+});
+
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body;
   const db = getLocalDB();

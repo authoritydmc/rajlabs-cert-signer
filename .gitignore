@@ -14,3 +14,7 @@ scripts/pki-config.*
 Thumbs.db
 .vscode/
 .idea/
+
+# Local testing mounts and secrets
+mounted-ca/
+secrets/
