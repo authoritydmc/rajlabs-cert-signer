@@ -372,5 +372,54 @@ CREATE TABLE issued_certs (
 
 ---
 
+## 🧙 Setup Wizard (always available)
+
+- First boot shows the wizard automatically (`isFirstRun` from `GET /api/auth/setup-status`).
+- After setup, reopen anytime via sidebar **🧙 Setup Wizard** or route **`GET /onboarding`**.
+- 1-click generates Root + Intermediate in memory, stores the intermediate
+  AES-256-GCM encrypted, hands you the Root key **once**, then shreds it.
+
+## 🎯 Purpose-Based CA Routing
+
+`POST /api/v1/sign` (and UI Issue tab) accept `ca`/`intermediateId` plus
+`purpose`/`profile`:
+
+| Purpose | CA |
+|---|---|
+| `server`, `web`, `tls`, `acme` | `int-server` |
+| `wifi`, `radius`, `8021x`, `eap`, `wireless` | `int-wifi` |
+| `iot`, `device`, `mqtt`, `embedded` | `int-iot` |
+
+Resolution: explicit name → purpose map → active CA → `int-server` → first
+usable. Responses include `caName` + `caSelection` (e.g. `purpose:wifi→int-wifi`).
+Empty system → `503 CA_NOT_AVAILABLE` with setup instructions + `setupUrl: /onboarding`.
+
+## 🔑 API Tokens (usage-tracked, bulk)
+
+- Per-key **certs issued / uses / last used CN+time**, status (`active`/`revoked`/`expired`), scopes, optional expiry.
+- Actions: revoke (reversible, audit-kept) / restore / delete, single + **bulk** (`POST /api/admin/tokens/bulk`).
+- Per-token drilldown: `GET /api/admin/tokens/:id/usage` lists certs issued with that key.
+- Certs record `issuedViaTokenId/Name`; bulk cert revoke: `POST /api/v1/revoke-bulk` (max 200).
+
+## 💓 Status Contract (FreeRADIUS / backend tab)
+
+- Public, unauthenticated: `GET /api/v1/status` → `{ code: READY|CA_NOT_AVAILABLE, activeCA, certificates{total,valid,revoked}, crl{exists}, acme{directory}, database }`.
+- Liveness (Coolify healthcheck): `GET /health` → `{ status: ok }`.
+- Authenticated deep health: `GET /api/admin/health-detail` (openssl, key-decrypt, uptime).
+- Full spec: [`docs/freeradius-backend-integration.md`](docs/freeradius-backend-integration.md).
+
+## 🌐 Path-Based (Coolify) Hosting
+
+- Set `BASE_PATH=/cert-signer` (or `auto`) when the UI lives at `https://backend.rajlabs.in/cert-signer`.
+- Leave `BASE_URL` **unset** to auto-detect per request (domain moves need no redeploy); set it only to pin ACME/CRL/installer URLs.
+- UI prefixes every API/asset call with the detected base — this fixes logins previously hitting `backend.rajlabs.in/api/auth/login` instead of `backend.rajlabs.in/cert-signer/api/auth/login`.
+
+## 📝 Enterprise Logging
+
+- Structured JSONL to stdout (`LOG_LEVEL=debug|info|warn|error`), request ids + latency, secrets redacted.
+- Audit trail (`auth.login_ok/failed`, `cert.issued/revoked`, `token.*`, `ca.*`) → stdout (`level: audit`) + `DATA_DIR/logs/audit.log`.
+
+---
+
 ## 📄 License
 This project is licensed under the [MIT License](LICENSE).

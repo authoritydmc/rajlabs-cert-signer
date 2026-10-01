@@ -12,11 +12,14 @@ services:
       - "${PORT:-9000}:9000"
     environment:
       - PORT=9000
-      - BASE_URL=${BASE_URL:-http://localhost:9000}
+      - BASE_URL=${BASE_URL:-} # Optional override; unset = auto-detect per request (domain moves need no redeploy)
+      - BASE_PATH=${BASE_PATH:-} # e.g. /cert-signer behind path-based proxy, or "auto"
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-} # Leave blank to auto-generate strong password
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-} # Master key for DB-stored intermediate keys
       - DATABASE_URL=${DATABASE_URL:-}    # Optional: postgres://user:pass@postgres:5432/pki_pki
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
     volumes:
       # Data directory holding database, issued certs, serials, and admin_credentials.txt
       - cert_signer_data:/app/data

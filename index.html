@@ -1,1047 +1,602 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Enterprise PKI & Certificate Signer Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    :root {
-      --bg: #090d16;
-      --card-bg: #111827;
-      --border: #1f2937;
-      --cyan: #06b6d4;
-      --blue: #3b82f6;
-      --green: #10b981;
-      --amber: #f59e0b;
-      --red: #ef4444;
-      --text: #f9fafb;
-      --text-muted: #9ca3af;
-      --code-bg: #050811;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
-    body { background-color: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
-
-    /* Modals & Overlays */
-    .overlay {
-      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
-      display: flex; align-items: center; justify-content: center; z-index: 1000;
-    }
-    .modal-card {
-      background: var(--card-bg); border: 1px solid var(--border); border-radius: 1rem;
-      padding: 2.25rem; width: 100%; max-width: 650px; max-height: 90vh; overflow-y: auto;
-      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7);
-    }
-
-    /* Dashboard Layout */
-    #dashboard-view { display: none; width: 100vw; height: 100vh; flex-direction: row; }
-    aside { width: 270px; background: #070b14; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-    .brand { padding: 1.5rem; border-bottom: 1px solid var(--border); font-weight: 800; font-size: 1.15rem; color: var(--cyan); display: flex; align-items: center; gap: 0.5rem; }
-    nav { flex: 1; padding: 1rem 0; overflow-y: auto; }
-    nav a { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1.5rem; color: var(--text-muted); text-decoration: none; font-size: 0.92rem; cursor: pointer; transition: all 0.2s; }
-    nav a:hover, nav a.active { color: var(--text); background: rgba(6, 182, 212, 0.1); border-left: 3px solid var(--cyan); }
-
-    main { flex: 1; overflow-y: auto; padding: 2.25rem; }
-    .section-title { font-size: 1.6rem; font-weight: 800; margin-bottom: 0.4rem; letter-spacing: -0.02em; }
-    .section-desc { color: var(--text-muted); margin-bottom: 1.75rem; font-size: 0.95rem; }
-
-    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.85rem; padding: 1.75rem; margin-bottom: 1.5rem; }
-    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-    .stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.25rem; }
-    .stat-val { font-size: 1.8rem; font-weight: 700; color: var(--cyan); margin-top: 0.25rem; }
-
-    /* Forms & Inputs */
-    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; color: #cbd5e1; }
-    input, textarea, select { width: 100%; background: var(--code-bg); border: 1px solid var(--border); border-radius: 0.5rem; color: var(--text); padding: 0.65rem 0.85rem; margin-bottom: 1rem; font-size: 0.9rem; }
-    textarea { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; resize: vertical; }
-    input:focus, textarea:focus { border-color: var(--cyan); outline: none; }
-
-    button { background: var(--cyan); color: #000; border: none; padding: 0.65rem 1.25rem; border-radius: 0.5rem; font-weight: 600; cursor: pointer; transition: opacity 0.2s; display: inline-flex; align-items: center; gap: 0.5rem; }
-    button:hover { opacity: 0.9; }
-    button.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
-    button.btn-success { background: var(--green); color: #000; }
-    button.btn-danger { background: var(--red); color: #fff; }
-
-    /* Tables */
-    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }
-    th { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); color: var(--text-muted); font-weight: 600; }
-    td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
-    .badge { display: inline-block; padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
-    .badge-active { background: rgba(16, 185, 129, 0.15); color: var(--green); border: 1px solid rgba(16, 185, 129, 0.3); }
-
-    pre code { font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: #38bdf8; display: block; background: var(--code-bg); padding: 1.15rem; border-radius: 0.5rem; border: 1px solid var(--border); overflow-x: auto; line-height: 1.5; }
-
-    .walkthrough-step {
-      background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.25rem; margin-bottom: 1.25rem;
-    }
-    .step-number {
-      display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: var(--cyan); color: #000; font-weight: 800; font-size: 0.85rem; margin-right: 0.5rem;
-    }
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+    nav a.active { background: rgba(6,182,212,.1); border-left: 3px solid #06b6d4; color: #fff; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 8px; }
   </style>
 </head>
-<body>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
 
-  <!-- 1. FIRST-RUN ONBOARDING WIZARD MODAL -->
-  <div id="onboarding-modal" class="overlay" style="display: none;">
-    <div class="modal-card">
-      <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
-        <span style="font-size: 1.8rem;">🎉</span>
-        <div>
-          <h2 style="font-size: 1.5rem; font-weight: 800; color: var(--cyan);">Welcome to Enterprise PKI Signer</h2>
-          <p style="color: var(--text-muted); font-size: 0.88rem;">First-Time Installation & Security Initialization</p>
+  <!-- Toast -->
+  <div id="toast" class="hidden fixed top-4 right-4 z-[2000] max-w-md rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 shadow-2xl text-sm"></div>
+
+  <!-- ONBOARDING MODAL -->
+  <div id="onboarding-modal" class="hidden fixed inset-0 z-[1000] items-center justify-center bg-black/85 p-4 backdrop-blur">
+    <div class="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900 p-6 sm:p-8">
+      <h2 class="text-xl font-extrabold text-cyan-400">🎉 Welcome to Enterprise PKI Signer</h2>
+      <p class="text-sm text-slate-400 mb-4">First-time setup — your admin password was generated on boot.</p>
+      <div class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 mb-4">
+        <div class="text-sm font-bold text-amber-400 mb-1">🔐 Initial admin password</div>
+        <div class="flex items-center justify-between gap-2 rounded-lg bg-black px-3 py-2 mono text-cyan-300 text-sm">
+          <span id="onboard-pass-display">Loading…</span>
+          <button class="rounded bg-slate-800 px-2 py-1 text-xs" onclick="copyOnboardPassword()">Copy</button>
         </div>
       </div>
-
-      <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 0.6rem; padding: 1rem; margin-bottom: 1.5rem;">
-        <div style="font-weight: 700; color: var(--amber); margin-bottom: 0.35rem;">🔐 Initial Generated Admin Credentials</div>
-        <p style="font-size: 0.85rem; color: #e2e8f0; margin-bottom: 0.75rem;">Your container generated a secure admin password on initial boot. Please copy and store it safely:</p>
-        <div style="background: var(--code-bg); padding: 0.75rem; border-radius: 0.4rem; font-family: 'JetBrains Mono', monospace; font-size: 0.95rem; color: var(--cyan); display: flex; justify-content: space-between; align-items: center;">
-          <span id="onboard-pass-display">Loading...</span>
-          <button style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="copyOnboardPassword()">Copy</button>
+      <div class="grid grid-cols-2 gap-2 mb-3">
+        <div><label class="text-xs font-semibold text-slate-300">Organization</label><input id="ob-org" value="Enterprise" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
+        <div><label class="text-xs font-semibold text-slate-300">Intermediate name</label><input id="ob-ca-name" value="int-server" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
+        <div><label class="text-xs font-semibold text-slate-300">Country</label><input id="ob-country" value="US" maxlength="2" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
+        <div><label class="text-xs font-semibold text-slate-300">City</label><input id="ob-city" value="San Francisco" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
+      </div>
+      <button id="btn-run-pki-gen" onclick="runOnboardingPkiGen()" class="w-full rounded-lg bg-cyan-500 px-4 py-2.5 font-semibold text-black hover:opacity-90">Generate PKI & Auto-Configure Signer</button>
+      <div id="ob-download-card" class="hidden mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+        <h4 class="font-bold text-emerald-400 mb-2">✅ PKI generated — download Root key NOW</h4>
+        <div class="flex flex-col gap-2">
+          <button class="rounded-lg bg-red-500 px-3 py-2 text-sm font-semibold text-white" onclick="downloadBlob('root-ca.key.pem', generatedPkiData.rootKeyPem)">🛡️ Download ROOT private key (keep offline!)</button>
+          <button class="rounded-lg border border-slate-600 px-3 py-2 text-sm" onclick="downloadBlob('root-ca.cert.pem', generatedPkiData.rootCertPem)">📄 Download Root certificate</button>
+          <button class="rounded-lg border border-slate-600 px-3 py-2 text-sm" onclick="downloadBlob('ca-chain.crt', generatedPkiData.caChainPem)">📦 Download CA chain</button>
         </div>
       </div>
-
-      <!-- Choice Tabs -->
-      <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem;">
-        <button id="btn-tab-gen" class="btn-outline" style="flex: 1; border-color: var(--cyan); color: var(--cyan);" onclick="switchOnboardTab('generate')">⚡ 1-Click Generate PKI Now</button>
-        <button id="btn-tab-off" class="btn-outline" style="flex: 1;" onclick="switchOnboardTab('offline')">💻 Manual Offline Scripts</button>
-      </div>
-
-      <!-- Option 1: 1-Click In-Browser Generation -->
-      <div id="onboard-pane-generate">
-        <div style="background: rgba(6, 182, 212, 0.05); border: 1px solid rgba(6, 182, 212, 0.2); border-radius: 0.6rem; padding: 1.25rem; margin-bottom: 1.25rem;">
-          <h4 style="color: var(--cyan); margin-bottom: 0.5rem;">Automated Root CA & Intermediate Signer Setup</h4>
-          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-            This will generate your Root CA and Intermediate Signer immediately.
-            The Intermediate Signer is <strong>automatically encrypted into the database</strong> so you don't need to copy/paste anything.
-            The Root CA Private Key is provided for <strong>download once</strong> and <strong>immediately deleted from the server</strong>.
-          </p>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem;">
-            <div>
-              <label>Organization Name</label>
-              <input type="text" id="ob-org" value="Enterprise" placeholder="MyCompany" />
-            </div>
-            <div>
-              <label>Intermediate Signer Name</label>
-              <input type="text" id="ob-ca-name" value="int-server" placeholder="int-server" />
-            </div>
-          </div>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
-            <div>
-              <label>Country (2-letter)</label>
-              <input type="text" id="ob-country" value="US" maxlength="2" />
-            </div>
-            <div>
-              <label>State / Province</label>
-              <input type="text" id="ob-state" value="California" />
-            </div>
-            <div>
-              <label>Locality / City</label>
-              <input type="text" id="ob-city" value="San Francisco" />
-            </div>
-          </div>
-
-          <button id="btn-run-pki-gen" style="width: 100%; margin-top: 1rem; justify-content: center;" onclick="runOnboardingPkiGen()">Generate PKI & Auto-Configure Signer</button>
-        </div>
-
-        <!-- Download & Vault Card (Appears after generation) -->
-        <div id="ob-download-card" style="display: none; background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 0.6rem; padding: 1.25rem; margin-bottom: 1.25rem;">
-          <h4 style="color: var(--green); margin-bottom: 0.5rem;">✅ PKI Successfully Generated & Configured!</h4>
-          <p style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 1rem;">
-            Your Intermediate Signer is active in the database. Download your air-gapped Root CA files below:
-          </p>
-          
-          <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem;">
-            <button class="btn-danger" style="justify-content: space-between;" onclick="downloadBlob('root-ca.key.pem', generatedPkiData.rootKeyPem)">
-              <span>🛡️ Download ROOT CA PRIVATE KEY (root-ca.key.pem)</span>
-              <span style="font-size: 0.75rem; background: rgba(0,0,0,0.3); padding: 0.2rem 0.5rem; border-radius: 4px;">KEEP OFFLINE!</span>
-            </button>
-            <button class="btn-outline" style="justify-content: space-between;" onclick="downloadBlob('root-ca.cert.pem', generatedPkiData.rootCertPem)">
-              <span>📄 Download Public Root Certificate (root-ca.cert.pem)</span>
-              <span>Download</span>
-            </button>
-            <button class="btn-outline" style="justify-content: space-between;" onclick="downloadBlob('ca-chain.crt', generatedPkiData.caChainPem)">
-              <span>📦 Download Full CA Chain Bundle (ca-chain.crt)</span>
-              <span>Download</span>
-            </button>
-          </div>
-
-          <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 0.4rem; padding: 0.75rem; font-size: 0.8rem; color: #fca5a5;">
-            ⚠️ <strong>CRITICAL SECURITY INSTRUCTION:</strong> Move <code>root-ca.key.pem</code> to a cold-storage offline USB or hardware vault. The server has <strong>permanently deleted its copy</strong> from memory and disk.
-          </div>
-        </div>
-      </div>
-
-      <!-- Option 2: Offline Scripts Guide -->
-      <div id="onboard-pane-offline" style="display: none;">
-        <div class="walkthrough-step">
-          <div style="font-weight: 600; margin-bottom: 0.5rem;"><span class="step-number">1</span> Run the Offline Generator Script</div>
-          <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">On your computer or air-gapped machine, run the helper script:</p>
-          <pre><code># Windows PowerShell:
-.\scripts\generate-offline-ca.ps1 -OrgName "MyOrg" -IntermediateName "int-server"
-
-# Linux / macOS:
-./scripts/generate-offline-ca.sh "MyOrg" "US" "CA" "SF" "int-server"</code></pre>
-        </div>
-
-        <div class="walkthrough-step">
-          <div style="font-weight: 600; margin-bottom: 0.5rem;"><span class="step-number">2</span> What to Upload & What to Keep Offline</div>
-          <p style="font-size: 0.85rem; color: var(--text-muted);">
-            • <strong>Upload to this Web UI:</strong> Files in <code>upload-to-web-ui/</code> (public root cert, intermediate cert & key).<br>
-            • <strong>NEVER Upload:</strong> <code>offline-root-ca-vault/root-ca.key.pem</code> (Keep it in an offline vault!).
-          </p>
-        </div>
-      </div>
-
-      <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
-        <button id="btn-finish-onboard" onclick="finishOnboarding()">Proceed to Dashboard</button>
-      </div>
+      <div class="mt-4 flex justify-end"><button onclick="finishOnboarding()" class="rounded-lg bg-cyan-500 px-4 py-2 font-semibold text-black">Proceed to Dashboard →</button></div>
     </div>
   </div>
 
-  <!-- 2. LOGIN OVERLAY -->
-  <div id="login-view" class="overlay">
-    <div class="modal-card" style="max-width: 420px;">
-      <h2 style="font-weight: 800; font-size: 1.6rem; margin-bottom: 0.5rem; color: var(--cyan);">Enterprise PKI Signer</h2>
-      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Enter administrator credentials to manage CA signers, tokens, and certificates.</p>
-      
-      <div id="login-error" style="color: var(--red); font-size: 0.85rem; margin-bottom: 1rem; display: none;"></div>
-
-      <label>Admin Username</label>
-      <input type="text" id="login-user" value="admin" placeholder="admin" />
-      
-      <label>Admin Password</label>
-      <input type="password" id="login-pass" placeholder="Enter password from docker log" />
-      
-      <button style="width: 100%; margin-top: 0.5rem; justify-content: center;" onclick="handleLogin()">Sign In to Dashboard</button>
-      <p style="color: #64748b; font-size: 0.75rem; margin-top: 1.25rem; text-align: center;">Credentials saved in <code>/app/data/admin_credentials.txt</code></p>
+  <!-- LOGIN -->
+  <div id="login-view" class="fixed inset-0 z-[1000] flex items-center justify-center bg-black/85 p-4 backdrop-blur">
+    <div class="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900 p-8">
+      <h2 class="text-2xl font-extrabold text-cyan-400">Enterprise PKI Signer</h2>
+      <p class="text-sm text-slate-400 mb-5">Sign in to manage CAs, tokens and certificates.</p>
+      <div id="login-error" class="hidden mb-3 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-300"></div>
+      <div id="basepath-notice" class="hidden mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"></div>
+      <label class="text-xs font-semibold text-slate-300">Admin username</label>
+      <input id="login-user" value="admin" class="mt-1 mb-3 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" />
+      <label class="text-xs font-semibold text-slate-300">Admin password</label>
+      <input id="login-pass" type="password" onkeydown="if(event.key==='Enter')handleLogin()" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" placeholder="ADMIN_PASSWORD from Coolify env" />
+      <button onclick="handleLogin()" class="mt-4 w-full rounded-lg bg-cyan-500 px-4 py-2.5 font-semibold text-black hover:opacity-90">Sign In to Dashboard</button>
+      <p class="mt-3 text-center text-[11px] text-slate-500">Behind a sub-path proxy? Uses <span class="mono">BASE_PATH</span> auto-detect — no redeploy needed.</p>
     </div>
   </div>
 
-  <!-- 3. DASHBOARD VIEW -->
-  <div id="dashboard-view">
-    <aside>
-      <div class="brand">🔒 Enterprise PKI</div>
-      <nav>
-        <a class="active" onclick="showTab('tab-overview')">📊 Overview & Downloads</a>
-        <a onclick="showTab('tab-cas')">🏛️ Intermediate CAs</a>
-        <a onclick="showTab('tab-generate')">✍️ Issue Certificate</a>
-        <a onclick="showTab('tab-certs')">📜 Issued Certificates</a>
-        <a onclick="showTab('tab-viewer')">🔍 Certificate Viewer</a>
-        <a onclick="showTab('tab-tokens')">🔑 API Tokens</a>
-        <a onclick="showTab('tab-settings')">⚙️ PKI Defaults & Org Profile</a>
-        <a onclick="showTab('tab-guide-generate')">📖 Guide: New Signer</a>
-        <a onclick="showTab('tab-guide-revoke')">🚫 Guide: Revocation & CRL</a>
+  <!-- DASHBOARD -->
+  <div id="dashboard-view" class="hidden min-h-screen lg:flex">
+    <aside class="w-64 shrink-0 border-r border-slate-800 bg-slate-950 flex flex-col">
+      <div class="border-b border-slate-800 px-5 py-4 font-extrabold text-cyan-400">🔒 Enterprise PKI</div>
+      <nav class="flex-1 overflow-y-auto py-2 text-sm" id="side-nav">
+        <a class="active flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-overview', this)">📊 Overview</a>
+        <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-status', this)">💓 Connection Status</a>
+        <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-cas', this)">🏛️ Intermediate CAs</a>
+        <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-generate', this)">✍️ Issue Certificate</a>
+        <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-certs', this)">📜 Issued Certificates</a>
+        <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-viewer', this)">🔍 Cert Viewer</a>
+        <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-tokens', this)">🔑 API Tokens</a>
+        <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-settings', this)">⚙️ Org Profile</a>
+        <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-amber-300 hover:text-amber-100" onclick="openOnboarding()">🧙 Setup Wizard</a>
       </nav>
-      <div style="padding: 1.5rem; border-top: 1px solid var(--border);">
-        <button class="btn-outline" style="width: 100%; font-size: 0.85rem; justify-content: center;" onclick="logout()">Sign Out</button>
-      </div>
+      <div class="border-t border-slate-800 p-4"><button onclick="logout()" class="w-full rounded-lg border border-slate-700 px-3 py-2 text-sm hover:bg-slate-800">Sign Out</button></div>
     </aside>
 
-    <main>
-      <!-- TAB: OVERVIEW & DOWNLOADS -->
-      <div id="tab-overview" class="tab-pane">
-        <h1 class="section-title">PKI Dashboard & Trust Downloads</h1>
-        <p class="section-desc">Download Root and Intermediate CA certificates for client devices and monitor authority health.</p>
-
-        <div class="grid-3">
-          <div class="stat-card">
-            <span style="color: var(--text-muted); font-size: 0.85rem;">Active Intermediate Signer</span>
-            <div class="stat-val" id="stat-active-ca">-</div>
-          </div>
-          <div class="stat-card">
-            <span style="color: var(--text-muted); font-size: 0.85rem;">Total Certificates Issued</span>
-            <div class="stat-val" id="stat-cert-count">0</div>
-          </div>
-          <div class="stat-card">
-            <span style="color: var(--text-muted); font-size: 0.85rem;">Root CA Status</span>
-            <div class="stat-val" style="color: var(--green);">Air-Gapped 🛡️</div>
+    <main class="flex-1 overflow-y-auto p-4 sm:p-8">
+      <!-- OVERVIEW -->
+      <div id="tab-overview" class="tab-pane active">
+        <h1 class="text-2xl font-extrabold">PKI Dashboard & Trust Downloads</h1>
+        <p class="text-sm text-slate-400 mb-5">Authority health and client trust bundles.</p>
+        <div class="grid gap-3 sm:grid-cols-3 mb-5">
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-4"><div class="text-xs text-slate-400">Active signer</div><div id="stat-active-ca" class="mt-1 text-xl font-bold text-cyan-400">—</div></div>
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-4"><div class="text-xs text-slate-400">Certificates issued</div><div id="stat-cert-count" class="mt-1 text-xl font-bold text-cyan-400">0</div></div>
+          <div class="rounded-xl border border-slate-800 bg-slate-900 p-4"><div class="text-xs text-slate-400">Root CA</div><div class="mt-1 text-xl font-bold text-emerald-400">Air-Gapped 🛡️</div></div>
+        </div>
+        <div id="overview-status-banner" class="hidden mb-5 rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm"><strong id="overview-status-text" class="text-red-300">⚠️ CA not available.</strong> <span id="overview-status-hint" class="text-slate-400"></span></div>
+        <div class="rounded-xl border border-cyan-500/30 bg-slate-900 p-5 mb-5">
+          <h2 class="font-bold text-cyan-300 mb-1">📥 Trust downloads</h2>
+          <div class="flex flex-wrap gap-2 mt-3">
+            <a id="dl-root" href="#"><button class="rounded-lg border border-slate-600 px-3 py-2 text-sm">📄 Root CA</button></a>
+            <a id="dl-int" href="#"><button class="rounded-lg border border-slate-600 px-3 py-2 text-sm">📄 Intermediate CA</button></a>
+            <a id="dl-chain" href="#"><button class="rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-black">📦 Full chain</button></a>
           </div>
         </div>
-
-        <!-- Direct CA Downloads Card -->
-        <div class="card" style="border-color: rgba(6, 182, 212, 0.4);">
-          <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--cyan); margin-bottom: 0.5rem;">📥 Direct Certificate Downloads for Client Devices</h2>
-          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">Download public certificates and chains directly for manual installation on clients, firewalls, and proxies:</p>
-          
-          <div style="display: flex; flex-wrap: wrap; gap: 0.75rem;">
-            <a href="/certs/root-ca.crt?download=1" download="root-ca.crt" style="text-decoration: none;">
-              <button class="btn-outline">📄 Download Root CA (root-ca.crt)</button>
-            </a>
-            <a href="/certs/intermediate-ca.crt?download=1" download="intermediate-ca.crt" style="text-decoration: none;">
-              <button class="btn-outline">📄 Download Intermediate CA (intermediate-ca.crt)</button>
-            </a>
-            <a href="/certs/ca-chain.crt?download=1" download="ca-chain.crt" style="text-decoration: none;">
-              <button class="btn-success">📦 Download Full CA Chain Bundle (ca-chain.crt)</button>
-            </a>
-          </div>
-        </div>
-
-        <!-- 1-Line Client Device Trust Installer -->
-        <div class="card">
-          <h3 style="margin-bottom: 0.75rem;">💻 1-Command Universal Client Trust Installation</h3>
-          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">Run these commands on client endpoints to automatically install the Root CA and Intermediate CA into the OS trust store so all browsers and tools trust certificates without warnings:</p>
-          
-          <div style="margin-bottom: 1.25rem;">
-            <label>🪟 Windows (Run in PowerShell as Administrator):</label>
-            <pre><code id="code-win-install">irm http://<host>:9000/install-trust-windows.ps1 | iex</code></pre>
-          </div>
-
-          <div>
-            <label>🐧 Linux (Ubuntu, Debian, RHEL, CentOS, Rocky, Alpine):</label>
-            <pre><code id="code-linux-install">curl -fsSL http://<host>:9000/install-trust-linux.sh | sudo bash</code></pre>
-          </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-5">
+          <h3 class="font-bold mb-3">💻 1-command client trust install</h3>
+          <label class="text-xs text-slate-400">Windows (admin PowerShell)</label>
+          <pre class="mb-3 overflow-x-auto rounded-lg border border-slate-800 bg-black p-3 text-xs text-sky-300 mono"><code id="code-win-install">…</code></pre>
+          <label class="text-xs text-slate-400">Linux</label>
+          <pre class="overflow-x-auto rounded-lg border border-slate-800 bg-black p-3 text-xs text-sky-300 mono"><code id="code-linux-install">…</code></pre>
         </div>
       </div>
 
-      <!-- TAB: INTERMEDIATE CAS -->
-      <div id="tab-cas" class="tab-pane" style="display: none;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-          <div>
-            <h1 class="section-title">Intermediate Certificate Authorities</h1>
-            <p class="section-desc">Manage signers signed offline by your Root CA. Private keys are encrypted at rest with AES-256-GCM.</p>
+      <!-- STATUS -->
+      <div id="tab-status" class="tab-pane">
+        <h1 class="text-2xl font-extrabold">Connection Status</h1>
+        <p class="text-sm text-slate-400 mb-5">Same <span class="mono">GET /api/v1/status</span> contract your backend.rajlabs.in admin tab polls.</p>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-5 mb-4">
+          <div class="flex flex-wrap items-center gap-3 mb-4">
+            <button onclick="loadConnectionStatus()" class="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-black">↻ Refresh</button>
+            <span id="status-dot" class="font-bold">—</span><span id="status-latency" class="text-xs text-slate-400"></span>
           </div>
-          <div style="display: flex; gap: 0.5rem;">
-            <button class="btn-outline" onclick="showTab('tab-guide-generate')">📖 How to Generate CA?</button>
-            <button onclick="document.getElementById('import-ca-modal').style.display='block'">+ Import Intermediate CA</button>
+          <div class="grid gap-3 sm:grid-cols-3">
+            <div class="rounded-xl border border-slate-800 bg-black p-4"><div class="text-xs text-slate-400">Signer</div><div id="st-signer" class="font-bold text-cyan-300">—</div></div>
+            <div class="rounded-xl border border-slate-800 bg-black p-4"><div class="text-xs text-slate-400">Active CA</div><div id="st-ca" class="font-bold text-cyan-300">—</div></div>
+            <div class="rounded-xl border border-slate-800 bg-black p-4"><div class="text-xs text-slate-400">Certs valid/revoked</div><div id="st-certs" class="font-bold text-cyan-300">—</div></div>
+            <div class="rounded-xl border border-slate-800 bg-black p-4"><div class="text-xs text-slate-400">CRL</div><div id="st-crl" class="font-bold">—</div></div>
+            <div class="rounded-xl border border-slate-800 bg-black p-4"><div class="text-xs text-slate-400">ACME</div><div id="st-acme" class="text-xs break-all text-cyan-300">—</div></div>
+            <div class="rounded-xl border border-slate-800 bg-black p-4"><div class="text-xs text-slate-400">Database</div><div id="st-db" class="font-bold">—</div></div>
           </div>
-        </div>
-
-        <div class="card">
-          <table>
-            <thead>
-              <tr>
-                <th>Identifier</th>
-                <th>Description</th>
-                <th>Private Key</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="ca-table-body"></tbody>
-          </table>
-        </div>
-
-        <!-- Import Modal -->
-        <div id="import-ca-modal" class="card" style="display: none; border-color: var(--cyan);">
-          <h3 style="margin-bottom: 0.5rem; color: var(--cyan);">Import Intermediate CA (Stored Encrypted with AES-256)</h3>
-          <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
-            Copy the files from your <code>upload-to-web-ui/</code> folder generated by the offline script.
-          </p>
-          
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <div>
-              <label>CA Identifier (e.g. int-server, int-wifi, int-iot)</label>
-              <input type="text" id="ca-name" placeholder="int-server" />
-              <label>Description</label>
-              <input type="text" id="ca-desc" placeholder="Production Server Signer" />
-              <label><input type="checkbox" id="ca-set-active" checked style="width: auto; margin-right: 0.5rem;" /> Set as default active signer</label>
-            </div>
-            <div>
-              <label>Public Root CA Certificate (PEM - from upload-to-web-ui/root-ca.cert.pem)</label>
-              <textarea id="ca-root-cert" rows="3" placeholder="-----BEGIN CERTIFICATE-----..."></textarea>
-            </div>
-          </div>
-          <label>Intermediate Certificate (PEM - from upload-to-web-ui/*.cert.pem)</label>
-          <textarea id="ca-cert" rows="3" placeholder="-----BEGIN CERTIFICATE-----..."></textarea>
-          <label>Intermediate Private Key (PEM - from upload-to-web-ui/*.key.pem)</label>
-          <textarea id="ca-key" rows="3" placeholder="-----BEGIN RSA PRIVATE KEY-----..."></textarea>
-          
-          <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
-            <button onclick="submitIntermediateCA()">Save & Encrypt to Database</button>
-            <button class="btn-outline" onclick="document.getElementById('import-ca-modal').style.display='none'">Cancel</button>
-          </div>
+          <label class="mt-4 block text-xs text-slate-400">Raw status JSON</label>
+          <pre class="mt-1 overflow-x-auto rounded-lg border border-slate-800 bg-black p-3 text-xs text-sky-300 mono"><code id="st-raw">Press Refresh…</code></pre>
         </div>
       </div>
 
-      <!-- TAB: ISSUE CERTIFICATE -->
-      <div id="tab-generate" class="tab-pane" style="display: none;">
-        <h1 class="section-title">Issue Leaf Certificate</h1>
-        <p class="section-desc">Generate private key, CSR, and signed full-chain certificate directly from UI.</p>
-
-        <div class="card" style="max-width: 650px;">
-          <label>Primary Common Name (FQDN)</label>
-          <input type="text" id="cert-cn" placeholder="api.example.com" />
-          <label>Subject Alternative Names (Comma-separated)</label>
-          <input type="text" id="cert-sans" placeholder="api.example.com, web.example.com, localhost" />
-          <label>Validity (Days)</label>
-          <input type="number" id="cert-days" value="90" />
-          <button onclick="generateLeafCert()">Generate & Sign Certificate</button>
+      <!-- CAs -->
+      <div id="tab-cas" class="tab-pane">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div><h1 class="text-2xl font-extrabold">Intermediate CAs</h1><p class="text-sm text-slate-400">Keys encrypted at rest (AES-256-GCM).</p></div>
+          <button onclick="document.getElementById('import-ca-modal').classList.toggle('hidden')" class="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-black">+ Import CA</button>
         </div>
-
-        <div id="issued-result-card" class="card" style="display: none;">
-          <h3 style="color: var(--green); margin-bottom: 1rem;">✅ Certificate Generated Successfully</h3>
-          <label>Private Key (Install on your application server):</label>
-          <textarea id="res-key" rows="4" readonly></textarea>
-          <label>Full Certificate Chain (Leaf + Intermediate + Root):</label>
-          <textarea id="res-chain" rows="6" readonly></textarea>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="text-slate-400"><th class="p-2">ID</th><th class="p-2">Desc</th><th class="p-2">Key</th><th class="p-2">Status</th><th class="p-2">Actions</th></tr></thead><tbody id="ca-table-body"></tbody></table></div>
+        <div id="import-ca-modal" class="hidden mt-4 rounded-xl border border-cyan-500/40 bg-slate-900 p-5">
+          <h3 class="font-bold text-cyan-300 mb-3">Import Intermediate CA</h3>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div><label class="text-xs">Identifier (int-server…)</label><input id="ca-name" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
+            <div><label class="text-xs">Description</label><input id="ca-desc" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
+          </div>
+          <label class="mt-3 block text-xs">Root cert PEM</label><textarea id="ca-root-cert" rows="2" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-xs mono"></textarea>
+          <label class="mt-2 block text-xs">Intermediate cert PEM</label><textarea id="ca-cert" rows="2" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-xs mono"></textarea>
+          <label class="mt-2 block text-xs">Intermediate key PEM</label><textarea id="ca-key" rows="2" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-xs mono"></textarea>
+          <label class="mt-2 text-xs"><input type="checkbox" id="ca-set-active" checked class="mr-1" />Set as active</label>
+          <div class="mt-3 flex gap-2"><button onclick="submitIntermediateCA()" class="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-black">Save & Encrypt</button></div>
         </div>
       </div>
 
-      <!-- TAB: ISSUED CERTS -->
-      <div id="tab-certs" class="tab-pane" style="display: none;">
-        <h1 class="section-title">Issued Certificates</h1>
-        <p class="section-desc">Audit history of all certificates signed by this authority.</p>
-        <div class="card">
-          <table>
-            <thead>
-              <tr>
-                <th>Serial</th>
-                <th>Signer CA</th>
-                <th>SAN Domains</th>
-                <th>Issued At</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody id="cert-table-body"></tbody>
-          </table>
+      <!-- ISSUE -->
+      <div id="tab-generate" class="tab-pane">
+        <h1 class="text-2xl font-extrabold">Issue Leaf Certificate</h1>
+        <p class="text-sm text-slate-400 mb-4">Key + CSR + sign in one step.</p>
+        <div class="max-w-xl rounded-xl border border-slate-800 bg-slate-900 p-5">
+          <label class="text-xs">Common Name</label><input id="cert-cn" placeholder="api.example.com" class="mt-1 mb-3 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" />
+          <label class="text-xs">SANs (comma-separated)</label><input id="cert-sans" class="mt-1 mb-3 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" />
+          <label class="text-xs">Days</label><input id="cert-days" type="number" value="90" class="mt-1 mb-3 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" />
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div><label class="text-xs">Signing CA (optional)</label><select id="cert-ca" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm"><option value="">Auto (by purpose → active)</option><option>int-server</option><option>int-wifi</option><option>int-iot</option></select></div>
+            <div><label class="text-xs">Purpose (routes CA)</label><select id="cert-purpose" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm"><option value="">Auto</option><option value="server">server / web / TLS</option><option value="wifi">wifi / RADIUS / 802.1X</option><option value="iot">iot / device / MQTT</option><option value="acme">acme</option></select></div>
+          </div>
+          <button onclick="generateLeafCert()" class="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-black">Generate & Sign</button>
+          <p class="mt-2 text-[11px] text-slate-500">Routing: explicit CA → purpose map (wifi→int-wifi, iot→int-iot, server→int-server) → active CA → int-server → first. Empty system returns <span class="mono">CA_NOT_AVAILABLE</span> with setup instructions.</p>
+        </div>
+        <div id="issued-result-card" class="hidden mt-4 max-w-xl rounded-xl border border-emerald-500/40 bg-slate-900 p-5">
+          <h3 class="font-bold text-emerald-400 mb-2">✅ Issued</h3>
+          <label class="text-xs">Private key</label><textarea id="res-key" rows="3" readonly class="mt-1 w-full rounded-lg border border-slate-700 bg-black p-2 text-xs mono"></textarea>
+          <label class="mt-2 block text-xs">Full chain</label><textarea id="res-chain" rows="5" readonly class="mt-1 w-full rounded-lg border border-slate-700 bg-black p-2 text-xs mono"></textarea>
         </div>
       </div>
 
-      <!-- TAB: CERTIFICATE & CSR VIEWER -->
-      <div id="tab-viewer" class="tab-pane" style="display: none;">
-        <h1 class="section-title">Certificate & CSR Inspector</h1>
-        <p class="section-desc">Inspect, parse, and verify X.509 public certificates, CA chains, or CSR files (PEM, CRT, CER, DER format).</p>
-
-        <!-- Dropzone / File Picker Card -->
-        <div class="card" style="border: 2px dashed rgba(6, 182, 212, 0.4); text-align: center; padding: 2.5rem; background: rgba(6, 182, 212, 0.02); cursor: pointer;" onclick="document.getElementById('cert-file-input').click()" ondragover="event.preventDefault(); this.style.borderColor='var(--cyan)'" ondragleave="this.style.borderColor='rgba(6, 182, 212, 0.4)'" ondrop="handleCertDrop(event)">
-          <input type="file" id="cert-file-input" style="display: none;" onchange="handleCertFileSelect(event)" accept=".crt,.pem,.cer,.der,.csr,.txt" />
-          <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📂</div>
-          <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 0.35rem;">Click to upload or Drag & Drop certificate file</h3>
-          <p style="color: var(--text-muted); font-size: 0.85rem;">Supports PEM, CRT, CER, DER, and CSR formats</p>
+      <!-- CERTS -->
+      <div id="tab-certs" class="tab-pane">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div><h1 class="text-2xl font-extrabold">Issued Certificates</h1><p class="text-sm text-slate-400">Select rows for bulk revoke.</p></div>
+          <div class="flex gap-2"><button onclick="bulkRevokeCerts()" class="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white">🚫 Revoke Selected</button><button onclick="loadCerts()" class="rounded-lg border border-slate-600 px-4 py-2 text-sm">↻</button></div>
         </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="text-slate-400"><th class="p-2"><input type="checkbox" onchange="toggleAllCerts(this.checked)" /></th><th class="p-2">Serial</th><th class="p-2">CA</th><th class="p-2">SANs</th><th class="p-2">Via</th><th class="p-2">Issued</th><th class="p-2">Status</th><th class="p-2"></th></tr></thead><tbody id="cert-table-body"></tbody></table></div>
+      </div>
 
-        <div class="card">
-          <label>Or Paste Certificate / CSR Text (PEM):</label>
-          <textarea id="viewer-paste-input" rows="5" placeholder="-----BEGIN CERTIFICATE-----..."></textarea>
-          <div style="display: flex; gap: 0.75rem;">
-            <button onclick="parsePastedCert()">Inspect Certificate</button>
-            <button class="btn-outline" onclick="document.getElementById('viewer-paste-input').value=''; document.getElementById('viewer-result').style.display='none';">Clear</button>
-          </div>
+      <!-- VIEWER -->
+      <div id="tab-viewer" class="tab-pane">
+        <h1 class="text-2xl font-extrabold">Certificate & CSR Inspector</h1>
+        <p class="text-sm text-slate-400 mb-4">Paste PEM or drop a file.</p>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-5 mb-4">
+          <textarea id="viewer-paste-input" rows="4" placeholder="-----BEGIN CERTIFICATE-----…" class="w-full rounded-lg border border-slate-700 bg-black p-3 text-xs mono"></textarea>
+          <div class="mt-2 flex gap-2"><button onclick="parsePastedCert()" class="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-black">Inspect</button><input type="file" id="cert-file-input" class="text-xs text-slate-400" onchange="handleCertFileSelect(event)" /></div>
         </div>
-
-        <!-- Parsed Certificate Result -->
-        <div id="viewer-result" class="card" style="display: none; border-color: var(--cyan);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
-            <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--cyan);" id="view-kind">X.509 Certificate</h3>
-            <span class="badge badge-active" id="view-ca-badge">End Entity</span>
+        <div id="viewer-result" class="hidden rounded-xl border border-cyan-500/40 bg-slate-900 p-5">
+          <h3 id="view-kind" class="font-bold text-cyan-300">Certificate</h3>
+          <div class="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+            <div><span class="text-slate-400 text-xs">Subject:</span><div id="view-subject" class="mono text-xs break-all">-</div></div>
+            <div><span class="text-slate-400 text-xs">Issuer:</span><div id="view-issuer" class="mono text-xs break-all">-</div></div>
+            <div><span class="text-slate-400 text-xs">Serial:</span><div id="view-serial" class="mono text-xs">-</div></div>
+            <div><span class="text-slate-400 text-xs">Validity:</span><div class="text-xs"><span id="view-from">-</span> → <span id="view-to">-</span></div></div>
           </div>
-
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
-            <div style="background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border);">
-              <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Subject</label>
-              <div id="view-subject" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; word-break: break-all; margin-top: 0.25rem;">-</div>
-            </div>
-            <div style="background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border);">
-              <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Issuer (CA)</label>
-              <div id="view-issuer" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; word-break: break-all; margin-top: 0.25rem;">-</div>
-            </div>
-          </div>
-
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
-            <div style="background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border);">
-              <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Serial Number</label>
-              <div id="view-serial" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; margin-top: 0.25rem;">-</div>
-            </div>
-            <div style="background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border);">
-              <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Valid From</label>
-              <div id="view-from" style="font-size: 0.85rem; margin-top: 0.25rem;">-</div>
-            </div>
-            <div style="background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border);">
-              <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Valid Until</label>
-              <div id="view-to" style="font-size: 0.85rem; margin-top: 0.25rem;">-</div>
-            </div>
-          </div>
-
-          <div style="background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border); margin-bottom: 1.5rem;">
-            <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Subject Alternative Names (SAN)</label>
-            <div id="view-sans" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--cyan); word-break: break-all; margin-top: 0.25rem;">-</div>
-          </div>
-
-          <details style="margin-top: 1rem;">
-            <summary style="font-size: 0.85rem; color: var(--text-muted); cursor: pointer; user-select: none;">View Complete OpenSSL Text Output</summary>
-            <pre style="margin-top: 0.75rem;"><code id="view-raw-text"></code></pre>
-          </details>
+          <div class="mt-2 text-xs"><span class="text-slate-400">SANs:</span> <span id="view-sans" class="mono text-cyan-300">-</span></div>
+          <pre class="mt-3 overflow-x-auto rounded-lg bg-black p-3 text-[11px] text-sky-300 mono"><code id="view-raw-text"></code></pre>
         </div>
       </div>
 
-      <!-- TAB: API TOKENS -->
-      <div id="tab-tokens" class="tab-pane" style="display: none;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-          <div>
-            <h1 class="section-title">API Tokens</h1>
-            <p class="section-desc">Create scoped tokens for ACME clients (Certbot, Traefik), CI/CD, and REST APIs.</p>
+      <!-- TOKENS -->
+      <div id="tab-tokens" class="tab-pane">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div><h1 class="text-2xl font-extrabold">API Tokens</h1><p class="text-sm text-slate-400">Usage-tracked keys for CI/CD, Traefik, FreeRADIUS backend.</p></div>
+          <div class="flex gap-2">
+            <button onclick="tokenBulk('revoke')" class="rounded-lg border border-slate-600 px-3 py-2 text-sm">Revoke sel.</button>
+            <button onclick="tokenBulk('restore')" class="rounded-lg border border-slate-600 px-3 py-2 text-sm">Restore sel.</button>
+            <button onclick="tokenBulk('delete')" class="rounded-lg bg-red-500 px-3 py-2 text-sm font-semibold text-white">Delete sel.</button>
+            <button onclick="createApiToken()" class="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-black">+ New Token</button>
           </div>
-          <button onclick="createApiToken()">+ Generate New Token</button>
         </div>
-
-        <div class="card">
-          <table>
-            <thead>
-              <tr>
-                <th>Token Name</th>
-                <th>API Key</th>
-                <th>Created</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody id="tokens-table-body"></tbody>
-          </table>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="text-slate-400"><th class="p-2"><input type="checkbox" id="tok-select-all" onchange="toggleAllToks(this.checked)" /></th><th class="p-2">Name</th><th class="p-2">Key</th><th class="p-2">Status</th><th class="p-2">Certs</th><th class="p-2">Uses</th><th class="p-2">Last used</th><th class="p-2">Actions</th></tr></thead><tbody id="tokens-table-body"></tbody></table></div>
+        <div id="token-usage-card" class="hidden mt-4 rounded-xl border border-slate-700 bg-slate-900 p-5">
+          <h3 id="token-usage-title" class="font-bold mb-2">Token usage</h3>
+          <div id="token-usage-list" class="text-sm text-slate-300"></div>
         </div>
       </div>
 
-      <!-- TAB: PKI DEFAULTS & ORG PROFILE -->
-      <div id="tab-settings" class="tab-pane" style="display: none;">
-        <h1 class="section-title">PKI Defaults & Organization Profile</h1>
-        <p class="section-desc">Save your organization defaults once. New certificate requests and helper scripts will automatically pre-populate these details so you never have to re-enter them.</p>
-
-        <div class="card" style="max-width: 650px;">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-            <div>
-              <label>Organization Name</label>
-              <input type="text" id="prof-org" placeholder="MyCompany" />
-            </div>
-            <div>
-              <label>Default Domain Suffix</label>
-              <input type="text" id="prof-domain" placeholder="example.com" />
-            </div>
+      <!-- SETTINGS -->
+      <div id="tab-settings" class="tab-pane">
+        <h1 class="text-2xl font-extrabold">Org Profile & Defaults</h1>
+        <p class="text-sm text-slate-400 mb-4">Pre-fills issuance forms.</p>
+        <div class="max-w-xl rounded-xl border border-slate-800 bg-slate-900 p-5">
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="text-xs">Org</label><input id="prof-org" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
+            <div><label class="text-xs">Domain suffix</label><input id="prof-domain" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
+            <div><label class="text-xs">Country</label><input id="prof-country" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
+            <div><label class="text-xs">State</label><input id="prof-state" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
+            <div><label class="text-xs">City</label><input id="prof-city" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
+            <div><label class="text-xs">Default days</label><input id="prof-days" type="number" value="90" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
           </div>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
-            <div>
-              <label>Country (2-letter)</label>
-              <input type="text" id="prof-country" placeholder="US" maxlength="2" />
-            </div>
-            <div>
-              <label>State / Province</label>
-              <input type="text" id="prof-state" placeholder="California" />
-            </div>
-            <div>
-              <label>Locality / City</label>
-              <input type="text" id="prof-city" placeholder="San Francisco" />
-            </div>
-          </div>
-
-          <label>Default Leaf Certificate Validity (Days)</label>
-          <input type="number" id="prof-days" value="90" />
-
-          <div style="display: flex; gap: 0.75rem; margin-top: 0.5rem;">
-            <button onclick="saveProfile()">Save Organization Defaults</button>
-            <span id="prof-saved-msg" style="color: var(--green); font-size: 0.88rem; display: none; align-items: center;">✓ Saved successfully!</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- TAB: TUTORIAL - GENERATE INTERMEDIATE CA -->
-      <div id="tab-guide-generate" class="tab-pane" style="display: none;">
-        <h1 class="section-title">Tutorial: How to Generate an Intermediate CA Signer</h1>
-        <p class="section-desc">Follow these guided steps to generate signers using the offline Root CA without risking root private key exposure.</p>
-
-        <div class="walkthrough-step">
-          <div style="font-weight: 700; margin-bottom: 0.5rem;"><span class="step-number">1</span> Option A: Use Automated Helper Script (Recommended)</div>
-          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.75rem;">Run on your secure machine. It handles OpenSSL extensions and segregates files automatically:</p>
-          <pre><code># Windows PowerShell:
-.\scripts\generate-offline-ca.ps1 -OrgName "MyCompany" -IntermediateName "int-server"
-
-# Linux / macOS:
-./scripts/generate-offline-ca.sh "MyCompany" "US" "California" "San Francisco" "int-server"</code></pre>
-        </div>
-
-        <div class="walkthrough-step">
-          <div style="font-weight: 700; margin-bottom: 0.5rem;"><span class="step-number">2</span> Option B: Manual OpenSSL Commands</div>
-          <pre><code># 1. Generate Intermediate Private Key & CSR
-openssl genrsa -out int-server.key.pem 4096
-openssl req -new -sha256 -key int-server.key.pem -out int-server.csr.pem \
-  -subj "/C=US/ST=California/L=San Francisco/O=MyCompany/CN=MyCompany Intermediate CA"
-
-# 2. Create extension file: ext.cnf
-echo "basicConstraints = critical, CA:true, pathlen:0" > ext.cnf
-echo "keyUsage = critical, digitalSignature, cRLSign, keyCertSign" >> ext.cnf
-
-# 3. Sign CSR with Offline Root CA
-openssl x509 -req -in int-server.csr.pem -CA root-ca.cert.pem -CAkey root-ca.key.pem \
-  -CAcreateserial -out int-server.cert.pem -days 3650 -sha256 -extfile ext.cnf</code></pre>
-        </div>
-
-        <div class="walkthrough-step">
-          <div style="font-weight: 700; margin-bottom: 0.5rem;"><span class="step-number">3</span> Import Into Web UI</div>
-          <p style="color: var(--text-muted); font-size: 0.9rem;">
-            Go to <strong>Intermediate CAs</strong> → <strong>+ Import Intermediate CA</strong>. Paste the contents of <code>root-ca.cert.pem</code>, <code>int-server.cert.pem</code>, and <code>int-server.key.pem</code>. Your key is stored safely using AES-256 encryption.
-          </p>
-        </div>
-      </div>
-
-      <!-- TAB: TUTORIAL - REVOCATION & CRL -->
-      <div id="tab-guide-revoke" class="tab-pane" style="display: none;">
-        <h1 class="section-title">Tutorial: Certificate Revocation & CRL Distribution</h1>
-        <p class="section-desc">Learn how revocation works and how client devices query Certificate Revocation Lists (CRL).</p>
-
-        <div class="walkthrough-step">
-          <div style="font-weight: 700; margin-bottom: 0.5rem;"><span class="step-number">1</span> Revoking a Certificate via API</div>
-          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.75rem;">Submit a revocation request using your API token and the certificate's serial number:</p>
-          <pre><code>curl -X POST http://<host>:9000/api/v1/revoke \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: cert_3a9f..." \
-  -d '{
-    "serial": "1002",
-    "reason": "keyCompromise"
-  }'</code></pre>
-        </div>
-
-        <div class="walkthrough-step">
-          <div style="font-weight: 700; margin-bottom: 0.5rem;"><span class="step-number">2</span> Automated CRL Generation</div>
-          <p style="color: var(--text-muted); font-size: 0.9rem;">
-            When a revocation occurs, the engine automatically runs <code>openssl ca -gencrl</code> and regenerates the CRL file.
-          </p>
-        </div>
-
-        <div class="walkthrough-step">
-          <div style="font-weight: 700; margin-bottom: 0.5rem;"><span class="step-number">3</span> Public CRL Query Endpoint</div>
-          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.75rem;">
-            Firewalls, web servers, and client systems can query real-time CRLs with proper <code>application/pkix-crl</code> headers:
-          </p>
-          <pre><code>http://<host>:9000/crl/int-server.crl</code></pre>
+          <button onclick="saveProfile()" class="mt-4 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-black">Save Defaults</button>
+          <span id="prof-saved-msg" class="hidden text-sm text-emerald-400 ml-2">✓ Saved</span>
         </div>
       </div>
     </main>
   </div>
 
-  <script>
-    let authToken = localStorage.getItem('pki_token') || '';
-
-    // Initialize hostname in code blocks
-    const hostUrl = window.location.origin;
-    document.getElementById('code-win-install').textContent = `irm ${hostUrl}/install-trust-windows.ps1 | iex`;
-    document.getElementById('code-linux-install').textContent = `curl -fsSL ${hostUrl}/install-trust-linux.sh | sudo bash`;
-
-    // Check setup on page load
-    checkSetupStatus();
-
-    async function checkSetupStatus() {
-      try {
-        const res = await fetch('/api/auth/setup-status');
-        const data = await res.json();
-        if (data.isFirstRun) {
-          document.getElementById('onboard-pass-display').textContent = data.initialPassword || 'Check docker log';
-          document.getElementById('onboarding-modal').style.display = 'flex';
-          document.getElementById('login-pass').value = data.initialPassword || '';
-        }
-      } catch (e) {}
-
-      if (authToken) {
-        checkAuth();
-      }
+<script>
+  // ---- Base-path aware API (env override OR auto-detect; works behind Coolify sub-paths) ----
+  function detectBasePath() {
+    const injected = (window.__PKI_BASE_PATH__ || '').replace(/\/$/, '');
+    if (injected) return injected;
+    // Auto-detect: first path segment that isn't a known top-level route
+    const m = window.location.pathname.match(/^\/([^\/]+)(\/.*)?$/);
+    if (m && !/^(api|acme|certs|crl|health|docs|redoc)$/.test(m[1])) {
+      // probe: only keep it if the API answers there (avoids breaking root deploys)
+      return '/' + m[1];
     }
-
-    function copyOnboardPassword() {
-      const pass = document.getElementById('onboard-pass-display').textContent;
-      navigator.clipboard.writeText(pass);
-      alert('Password copied to clipboard!');
+    return '';
+  }
+  let API_BASE = detectBasePath();
+  const api = (p) => `${API_BASE}${p}`;
+  async function apiFetch(path, opts) {
+    let res = await fetch(api(path), opts);
+    // Fallback: if root API 404s and we guessed a base, retry the other variant once
+    if (res.status === 404 && !window.__PKI_BASE_PATH__) {
+      const alt = API_BASE ? path : ('/' + window.location.pathname.split('/')[1] + path);
+      if (alt !== api(path)) { res = await fetch(alt, opts); if (res.ok) API_BASE = API_BASE ? '' : '/' + window.location.pathname.split('/')[1]; }
     }
+    return res;
+  }
+  const authH = () => ({ 'Authorization': `Bearer ${authToken}`, 'Content-Type': 'application/json' });
 
-    let generatedPkiData = null;
+  let authToken = localStorage.getItem('pki_token') || '';
+  let generatedPkiData = null;
+  let lastStatus = null;
 
-    function switchOnboardTab(tab) {
-      const paneGen = document.getElementById('onboard-pane-generate');
-      const paneOff = document.getElementById('onboard-pane-offline');
-      const btnGen = document.getElementById('btn-tab-gen');
-      const btnOff = document.getElementById('btn-tab-off');
+  function toast(msg, isErr) {
+    const el = document.getElementById('toast');
+    el.className = `fixed top-4 right-4 z-[2000] max-w-md rounded-xl border px-4 py-3 shadow-2xl text-sm ${isErr ? 'border-red-500/40 bg-red-950 text-red-200' : 'border-emerald-500/40 bg-emerald-950 text-emerald-100'}`;
+    el.innerHTML = msg;
+    setTimeout(() => el.classList.add('hidden'), 6000);
+    el.classList.remove('hidden');
+  }
+  function errMsg(d, fallback) {
+    if (!d) return fallback || 'Request failed';
+    if (typeof d === 'string') return d;
+    let s = d.error || d.message || fallback || 'Request failed';
+    if (d.code) s = `[${d.code}] ${s}`;
+    if (d.hint) s += `<br><span class="opacity-70">${d.hint}</span>`;
+    return s;
+  }
 
-      if (tab === 'generate') {
-        paneGen.style.display = 'block';
-        paneOff.style.display = 'none';
-        btnGen.style.borderColor = 'var(--cyan)';
-        btnGen.style.color = 'var(--cyan)';
-        btnOff.style.borderColor = 'var(--border)';
-        btnOff.style.color = 'var(--text-muted)';
-      } else {
-        paneGen.style.display = 'none';
-        paneOff.style.display = 'block';
-        btnOff.style.borderColor = 'var(--cyan)';
-        btnOff.style.color = 'var(--cyan)';
-        btnGen.style.borderColor = 'var(--border)';
-        btnGen.style.color = 'var(--text-muted)';
-      }
-    }
+  // Fix download + installer URLs for sub-path hosting
+  function fixAssetUrls() {
+    const set = (id, p) => { const a = document.getElementById(id); if (a) a.href = api(p); };
+    set('dl-root', '/certs/root-ca.crt?download=1');
+    set('dl-int', '/certs/intermediate-ca.crt?download=1');
+    set('dl-chain', '/certs/ca-chain.crt?download=1');
+    const origin = window.location.origin + API_BASE;
+    document.getElementById('code-win-install').textContent = `irm ${origin}/install-trust-windows.ps1 | iex`;
+    document.getElementById('code-linux-install').textContent = `curl -fsSL ${origin}/install-trust-linux.sh | sudo bash`;
+  }
 
-    async function runOnboardingPkiGen() {
-      const btn = document.getElementById('btn-run-pki-gen');
-      const orgName = document.getElementById('ob-org').value || 'Enterprise';
-      const intermediateName = document.getElementById('ob-ca-name').value || 'int-server';
-      const country = document.getElementById('ob-country').value || 'US';
-      const state = document.getElementById('ob-state').value || 'California';
-      const city = document.getElementById('ob-city').value || 'San Francisco';
-
-      btn.disabled = true;
-      btn.textContent = 'Generating 4096-bit RSA PKI & Initializing Vault...';
-
-      try {
-        const res = await fetch('/api/auth/onboarding-generate-pki', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ orgName, intermediateName, country, state, city })
-        });
-        const data = await res.json();
-        if (data.success) {
-          generatedPkiData = data;
-          document.getElementById('ob-download-card').style.display = 'block';
-          btn.textContent = '✅ PKI Generated Successfully';
-          btn.style.background = 'var(--green)';
-          btn.disabled = false;
-        } else {
-          alert('Generation failed: ' + (data.error || 'Unknown error'));
-          btn.disabled = false;
-          btn.textContent = 'Generate PKI & Auto-Configure Signer';
-        }
-      } catch (err) {
-        alert('Network error during generation: ' + err.message);
-        btn.disabled = false;
-        btn.textContent = 'Generate PKI & Auto-Configure Signer';
-      }
-    }
-
-    function downloadBlob(filename, content) {
-      if (!content) {
-        alert('File content unavailable. Please re-run generation.');
-        return;
-      }
-      const blob = new Blob([content], { type: 'application/x-pem-file;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-
-    async function finishOnboarding() {
-      await fetch('/api/auth/complete-setup', { method: 'POST' });
-      document.getElementById('onboarding-modal').style.display = 'none';
-      if (authToken) {
-        loadDashboardData();
-      }
-    }
-
-    async function handleLogin() {
-      const username = document.getElementById('login-user').value;
-      const password = document.getElementById('login-pass').value;
-      const errEl = document.getElementById('login-error');
-      errEl.style.display = 'none';
-
-      try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password })
-        });
-        const data = await res.json();
-        if (data.success) {
-          authToken = data.token;
-          localStorage.setItem('pki_token', authToken);
-          showDashboard();
-        } else {
-          errEl.textContent = data.error || 'Login failed';
-          errEl.style.display = 'block';
-        }
-      } catch (err) {
-        errEl.textContent = err.message;
-        errEl.style.display = 'block';
-      }
-    }
-
-    function logout() {
-      localStorage.removeItem('pki_token');
-      location.reload();
-    }
-
-    async function checkAuth() {
-      try {
-        const res = await fetch('/api/admin/intermediate-cas', {
-          headers: { 'Authorization': `Bearer ${authToken}` }
-        });
-        if (res.ok) {
-          showDashboard();
-        } else {
-          logout();
-        }
-      } catch (e) {
-        logout();
-      }
-    }
-
-    function showDashboard() {
-      document.getElementById('login-view').style.display = 'none';
-      document.getElementById('dashboard-view').style.display = 'flex';
-      loadOverview();
-      loadCAs();
-      loadCerts();
-      loadTokens();
-      loadProfile();
-    }
-
-    function showTab(tabId) {
-      document.querySelectorAll('.tab-pane').forEach(el => el.style.display = 'none');
-      document.querySelectorAll('nav a').forEach(el => el.classList.remove('active'));
-      document.getElementById(tabId).style.display = 'block';
-      event.target.classList.add('active');
-    }
-
-    async function loadOverview() {
-      const res = await fetch('/health');
+  checkSetupStatus();
+  // The setup wizard lives at two places: first-run modal AND permanent
+  // nav entry "🧙 Setup Wizard" / route /onboarding (works even after setup).
+  function openOnboarding() {
+    document.getElementById('onboarding-modal').style.display = 'flex';
+    refreshOnboardPassword();
+  }
+  async function refreshOnboardPassword() {
+    try {
+      const res = await apiFetch('/api/auth/setup-status');
       const data = await res.json();
-      document.getElementById('stat-active-ca').textContent = data.activeCA || 'None (Import one!)';
-      const cRes = await fetch('/api/admin/certificates', { headers: { 'Authorization': `Bearer ${authToken}` } });
-      const certs = await cRes.json();
-      document.getElementById('stat-cert-count').textContent = certs.length || 0;
-    }
-
-    async function loadCAs() {
-      const res = await fetch('/api/admin/intermediate-cas', { headers: { 'Authorization': `Bearer ${authToken}` } });
-      const list = await res.json();
-      const tbody = document.getElementById('ca-table-body');
-      tbody.innerHTML = list.map(ca => `
-        <tr>
-          <td><strong>${ca.name}</strong></td>
-          <td style="color: var(--text-muted);">${ca.description || '-'}</td>
-          <td><span class="badge ${ca.hasKey ? 'badge-active' : ''}">Encrypted in DB</span></td>
-          <td>${ca.isActive ? '<span class="badge badge-active">Active Signer</span>' : '<span class="badge">Standby</span>'}</td>
-          <td>${ca.isActive ? '-' : `<button class="btn-outline" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="activateCA('${ca.id}')">Make Active</button>`}</td>
-        </tr>
-      `).join('');
-    }
-
-    async function activateCA(id) {
-      await fetch(`/api/admin/intermediate-cas/${id}/activate`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${authToken}` }
-      });
-      loadCAs();
-      loadOverview();
-    }
-
-    async function submitIntermediateCA() {
-      const payload = {
-        name: document.getElementById('ca-name').value,
-        description: document.getElementById('ca-desc').value,
-        setActive: document.getElementById('ca-set-active').checked,
-        rootCertPem: document.getElementById('ca-root-cert').value,
-        certPem: document.getElementById('ca-cert').value,
-        keyPem: document.getElementById('ca-key').value
-      };
-
-      const res = await fetch('/api/admin/intermediate-cas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        document.getElementById('import-ca-modal').style.display = 'none';
-        loadCAs();
-        loadOverview();
+      if (data.initialPassword) {
+        document.getElementById('onboard-pass-display').textContent = data.initialPassword;
+        if (!document.getElementById('login-pass').value) document.getElementById('login-pass').value = data.initialPassword;
       } else {
-        alert('Failed to save Intermediate CA.');
+        document.getElementById('onboard-pass-display').textContent = 'Already set — use your ADMIN_PASSWORD (Coolify env).';
       }
-    }
-
-    async function generateLeafCert() {
-      const commonName = document.getElementById('cert-cn').value;
-      const sans = document.getElementById('cert-sans').value;
-      const days = document.getElementById('cert-days').value;
-
-      const res = await fetch('/api/admin/generate-cert', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
-        body: JSON.stringify({ commonName, sans, days })
-      });
+    } catch (e) {}
+  }
+  async function checkSetupStatus() {
+    try {
+      const res = await apiFetch('/api/auth/setup-status');
       const data = await res.json();
-      if (data.success) {
-        document.getElementById('res-key').value = data.privateKey;
-        document.getElementById('res-chain').value = data.fullChain;
-        document.getElementById('issued-result-card').style.display = 'block';
-        loadCerts();
-        loadOverview();
-      } else {
-        alert(data.error);
+      if (data.basePath) { API_BASE = data.basePath; fixAssetUrls(); }
+      const notice = document.getElementById('basepath-notice');
+      if (API_BASE) { notice.classList.remove('hidden'); notice.textContent = `Sub-path mode: API base is ${API_BASE} (auto-detected).`; }
+      if (data.isFirstRun || window.location.pathname.endsWith('/onboarding')) {
+        document.getElementById('onboard-pass-display').textContent = data.initialPassword || 'Check Coolify env ADMIN_PASSWORD';
+        document.getElementById('onboarding-modal').style.display = 'flex';
+        if (data.initialPassword) document.getElementById('login-pass').value = data.initialPassword;
       }
+    } catch (e) { /* backend unreachable yet */ }
+    fixAssetUrls();
+    if (authToken) checkAuth();
+  }
+
+  function copyOnboardPassword() { navigator.clipboard.writeText(document.getElementById('onboard-pass-display').textContent); toast('Password copied'); }
+  async function runOnboardingPkiGen() {
+    const btn = document.getElementById('btn-run-pki-gen');
+    btn.disabled = true; btn.textContent = 'Generating 4096-bit RSA PKI…';
+    try {
+      const res = await apiFetch('/api/auth/onboarding-generate-pki', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgName: document.getElementById('ob-org').value || 'Enterprise', intermediateName: document.getElementById('ob-ca-name').value || 'int-server', country: document.getElementById('ob-country').value || 'US', city: document.getElementById('ob-city').value || 'San Francisco' }) });
+      const data = await res.json();
+      if (data.success) { generatedPkiData = data; document.getElementById('ob-download-card').classList.remove('hidden'); btn.textContent = '✅ Generated'; }
+      else toast(errMsg(data, 'Generation failed'), true);
+    } catch (e) { toast(e.message, true); }
+    btn.disabled = false;
+  }
+  function downloadBlob(filename, content) {
+    if (!content) return toast('File unavailable — re-run generation', true);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([content], { type: 'application/x-pem-file' }));
+    a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  }
+  async function finishOnboarding() { try { await apiFetch('/api/auth/complete-setup', { method: 'POST' }); } catch (e) {} document.getElementById('onboarding-modal').style.display = 'none'; if (authToken) showDashboard(); }
+
+  async function handleLogin() {
+    const errEl = document.getElementById('login-error'); errEl.classList.add('hidden');
+    try {
+      const res = await apiFetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: document.getElementById('login-user').value, password: document.getElementById('login-pass').value }) });
+      const data = await res.json();
+      if (data.success) { authToken = data.token; localStorage.setItem('pki_token', authToken); showDashboard(); }
+      else { errEl.innerHTML = errMsg(data, 'Login failed'); errEl.classList.remove('hidden'); }
+    } catch (e) { errEl.textContent = 'Cannot reach signer API at ' + api('/api/auth/login') + ' — check Coolify routing / BASE_PATH.'; errEl.classList.remove('hidden'); }
+  }
+  function logout() { localStorage.removeItem('pki_token'); location.reload(); }
+  async function checkAuth() {
+    try {
+      const res = await apiFetch('/api/admin/intermediate-cas', { headers: authH() });
+      if (res.ok) showDashboard();
+    } catch (e) {}
+  }
+  function showDashboard() {
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('dashboard-view').classList.remove('hidden');
+    document.getElementById('dashboard-view').classList.add('lg:flex');
+    loadOverview(); loadCAs(); loadCerts(); loadTokens(); loadProfile(); loadConnectionStatus();
+  }
+  function showTab(id, el) {
+    document.querySelectorAll('.tab-pane').forEach(t => t.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    document.querySelectorAll('#side-nav a').forEach(a => a.classList.remove('active'));
+    if (el) el.classList.add('active');
+    if (id === 'tab-status') loadConnectionStatus();
+    if (id === 'tab-tokens') loadTokens();
+    if (id === 'tab-certs') loadCerts();
+  }
+
+  async function loadOverview() {
+    try {
+      const res = await apiFetch('/api/v1/status');
+      const s = await res.json();
+      lastStatus = s;
+      document.getElementById('stat-active-ca').textContent = s.activeCA || 'None — import one!';
+      document.getElementById('stat-cert-count').textContent = s.certificates ? s.certificates.total : 0;
+      const banner = document.getElementById('overview-status-banner');
+      if (s.code !== 'READY') {
+        banner.classList.remove('hidden');
+        document.getElementById('overview-status-text').textContent = '⚠️ ' + (s.message || 'CA not available');
+        document.getElementById('overview-status-hint').textContent = 'Go to Intermediate CAs → Import / Generate.';
+      } else banner.classList.add('hidden');
+    } catch (e) {}
+  }
+  async function loadConnectionStatus() {
+    const t0 = performance.now();
+    try {
+      const res = await apiFetch('/api/v1/status');
+      const ms = Math.round(performance.now() - t0);
+      const s = await res.json();
+      lastStatus = s;
+      const ok = s.code === 'READY';
+      document.getElementById('status-dot').innerHTML = ok ? '<span class="text-emerald-400">● READY</span>' : `<span class="text-red-400">● ${s.code || 'DOWN'}</span>`;
+      document.getElementById('status-latency').textContent = `${ms} ms · ${api('/api/v1/status')}`;
+      document.getElementById('st-signer').textContent = s.status || '—';
+      document.getElementById('st-ca').textContent = s.activeCA || 'none';
+      document.getElementById('st-certs').textContent = s.certificates ? `${s.certificates.valid}/${s.certificates.revoked}` : '—';
+      document.getElementById('st-crl').textContent = s.crl ? (s.crl.exists ? '✅ ' + s.crl.name : '❌ missing') : '—';
+      document.getElementById('st-acme').textContent = (s.acme && s.acme.directory) || '—';
+      document.getElementById('st-db').textContent = s.database || '—';
+      document.getElementById('st-raw').textContent = JSON.stringify(s, null, 2);
+    } catch (e) {
+      document.getElementById('status-dot').innerHTML = '<span class="text-red-400">● UNREACHABLE</span>';
+      document.getElementById('st-raw').textContent = 'Fetch failed: ' + e.message + '\nTried: ' + api('/api/v1/status');
     }
+  }
 
-    async function loadCerts() {
-      const res = await fetch('/api/admin/certificates', { headers: { 'Authorization': `Bearer ${authToken}` } });
-      const certs = await res.json();
-      const tbody = document.getElementById('cert-table-body');
-      tbody.innerHTML = certs.map(c => `
-        <tr>
-          <td><code>0x${c.serial}</code></td>
-          <td>${c.caName}</td>
-          <td>${(c.sanDomains || []).join(', ')}</td>
-          <td style="color: var(--text-muted);">${new Date(c.issuedAt).toLocaleString()}</td>
-          <td><span class="badge badge-active">${c.status}</span></td>
-        </tr>
-      `).join('');
+  async function loadCAs() {
+    const res = await apiFetch('/api/admin/intermediate-cas', { headers: authH() });
+    const list = await res.json();
+    document.getElementById('ca-table-body').innerHTML = (Array.isArray(list) ? list : []).map(ca => `
+      <tr class="border-t border-slate-800">
+        <td class="p-2 font-bold">${ca.name}</td>
+        <td class="p-2 text-slate-400">${ca.description || '-'}</td>
+        <td class="p-2"><span class="rounded bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">Encrypted</span></td>
+        <td class="p-2">${ca.isActive ? '<span class="rounded bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">Active</span>' : '<span class="text-slate-500 text-xs">Standby</span>'}</td>
+        <td class="p-2 whitespace-nowrap">${ca.isActive ? '' : `<button class="rounded border border-slate-600 px-2 py-1 text-xs" onclick="activateCA('${ca.id}')">Make active</button> `}<button class="rounded border border-red-500/50 px-2 py-1 text-xs text-red-300" onclick="deleteCA('${ca.id}')">Delete</button></td>
+      </tr>`).join('');
+  }
+  async function activateCA(id) { await apiFetch(`/api/admin/intermediate-cas/${id}/activate`, { method: 'POST', headers: authH() }); loadCAs(); loadOverview(); }
+  async function deleteCA(id) { if (!confirm('Delete this CA? Existing certs stay for audit but cannot be re-signed by it.')) return; const r = await apiFetch(`/api/admin/intermediate-cas/${id}`, { method: 'DELETE', headers: authH() }); const d = await r.json(); if (!d.success) toast(errMsg(d), true); loadCAs(); loadOverview(); }
+  async function submitIntermediateCA() {
+    const res = await apiFetch('/api/admin/intermediate-cas', { method: 'POST', headers: authH(), body: JSON.stringify({ name: document.getElementById('ca-name').value, description: document.getElementById('ca-desc').value, setActive: document.getElementById('ca-set-active').checked, rootCertPem: document.getElementById('ca-root-cert').value, certPem: document.getElementById('ca-cert').value, keyPem: document.getElementById('ca-key').value }) });
+    const d = await res.json();
+    if (d.success || res.ok) { document.getElementById('import-ca-modal').classList.add('hidden'); loadCAs(); loadOverview(); }
+    else toast(errMsg(d, 'Import failed'), true);
+  }
+
+  async function generateLeafCert() {
+    const res = await apiFetch('/api/admin/generate-cert', { method: 'POST', headers: authH(), body: JSON.stringify({ commonName: document.getElementById('cert-cn').value, sans: document.getElementById('cert-sans').value, days: document.getElementById('cert-days').value, ca: document.getElementById('cert-ca').value || undefined, purpose: document.getElementById('cert-purpose').value || undefined }) });
+    const d = await res.json();
+    if (d.success) {
+      document.getElementById('res-key').value = d.privateKey; document.getElementById('res-chain').value = d.fullChain; document.getElementById('issued-result-card').classList.remove('hidden');
+      toast(`Issued serial ${d.serial}${d.caSelection ? ' via ' + d.caSelection : ''}`);
+      loadCerts(); loadOverview();
     }
-
-    async function loadTokens() {
-      const res = await fetch('/api/admin/tokens', { headers: { 'Authorization': `Bearer ${authToken}` } });
-      const tokens = await res.json();
-      const tbody = document.getElementById('tokens-table-body');
-      tbody.innerHTML = tokens.map(t => `
-        <tr>
-          <td><strong>${t.name}</strong></td>
-          <td><code>${t.token}</code></td>
-          <td style="color: var(--text-muted);">${new Date(t.createdAt).toLocaleDateString()}</td>
-          <td><button class="btn-danger" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="deleteToken('${t.id}')">Revoke</button></td>
-        </tr>
-      `).join('');
+    else {
+      // CA_NOT_AVAILABLE carries setupUrl + expectedCAs — offer one-click jump to wizard
+      if (d.code === 'CA_NOT_AVAILABLE') { toast(errMsg(d, 'Issuance failed') + '<br><button class="mt-2 rounded bg-amber-500 px-3 py-1 text-black font-semibold" onclick="openOnboarding()">🧙 Open Setup Wizard</button>', true); }
+      else toast(errMsg(d, 'Issuance failed'), true);
     }
+  }
 
-    async function createApiToken() {
-      const name = prompt('Enter a name for this API token (e.g. Ingress Certbot, Traefik, CI/CD):');
-      if (!name) return;
-      await fetch('/api/admin/tokens', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
-        body: JSON.stringify({ name })
-      });
-      loadTokens();
-    }
+  async function loadCerts() {
+    const res = await apiFetch('/api/admin/certificates', { headers: authH() });
+    const certs = await res.json();
+    document.getElementById('cert-table-body').innerHTML = (Array.isArray(certs) ? certs : []).map(c => `
+      <tr class="border-t border-slate-800">
+        <td class="p-2"><input type="checkbox" class="cert-check" value="${c.serial}" /></td>
+        <td class="p-2 mono text-xs">0x${c.serial}</td>
+        <td class="p-2">${c.caName || '-'}</td>
+        <td class="p-2 text-xs text-slate-300">${(c.sanDomains || []).join(', ')}</td>
+        <td class="p-2 text-xs text-slate-400">${c.issuedViaTokenName || '—'}</td>
+        <td class="p-2 text-xs text-slate-500">${c.issuedAt ? new Date(c.issuedAt).toLocaleString() : '-'}</td>
+        <td class="p-2">${c.status === 'revoked' ? '<span class="rounded bg-red-500/15 px-2 py-0.5 text-xs text-red-300">revoked</span>' : '<span class="rounded bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">valid</span>'}</td>
+        <td class="p-2">${c.status === 'revoked' ? '' : `<button class="rounded border border-red-500/50 px-2 py-1 text-xs text-red-300" onclick="revokeCert('${c.serial}')">Revoke</button>`}</td>
+      </tr>`).join('');
+  }
+  function toggleAllCerts(v) { document.querySelectorAll('.cert-check').forEach(c => c.checked = v); }
+  async function revokeCert(serial) {
+    if (!confirm('Revoke 0x' + serial + '?')) return;
+    const r = await apiFetch('/api/v1/revoke', { method: 'POST', headers: authH(), body: JSON.stringify({ serial }) });
+    const d = await r.json(); if (!d.success) toast(errMsg(d), true); loadCerts(); loadOverview();
+  }
+  async function bulkRevokeCerts() {
+    const serials = [...document.querySelectorAll('.cert-check:checked')].map(c => c.value);
+    if (!serials.length) return toast('Select certificates first');
+    if (!confirm(`Revoke ${serials.length} certificate(s)?`)) return;
+    const r = await apiFetch('/api/v1/revoke-bulk', { method: 'POST', headers: authH(), body: JSON.stringify({ serials }) });
+    const d = await r.json();
+    if (d.success) toast(`Revoked ${d.revoked}. Not found: ${(d.notFound || []).length}`);
+    else toast(errMsg(d), true);
+    loadCerts(); loadOverview();
+  }
 
-    async function loadProfile() {
-      try {
-        const res = await fetch('/api/admin/profile', { headers: { 'Authorization': `Bearer ${authToken}` } });
-        const p = await res.json();
-        document.getElementById('prof-org').value = p.orgName || '';
-        document.getElementById('prof-domain').value = p.domainSuffix || '';
-        document.getElementById('prof-country').value = p.country || 'US';
-        document.getElementById('prof-state').value = p.state || '';
-        document.getElementById('prof-city').value = p.city || '';
-        document.getElementById('prof-days').value = p.defaultDays || 90;
+  async function loadTokens() {
+    const res = await apiFetch('/api/admin/tokens', { headers: authH() });
+    const tokens = await res.json();
+    document.getElementById('tokens-table-body').innerHTML = (Array.isArray(tokens) ? tokens : []).map(t => `
+      <tr class="border-t border-slate-800">
+        <td class="p-2"><input type="checkbox" class="tok-check" value="${t.id}" /></td>
+        <td class="p-2 font-semibold">${t.name}<div class="text-[11px] font-normal text-slate-500">created ${t.createdAt ? new Date(t.createdAt).toLocaleDateString() : '-'}</div></td>
+        <td class="p-2 mono text-xs break-all">${t.token}</td>
+        <td class="p-2">${t.status === 'active' ? '<span class="rounded bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">active</span>' : `<span class="rounded bg-red-500/15 px-2 py-0.5 text-xs text-red-300">${t.status}</span>`}</td>
+        <td class="p-2 text-center font-bold text-cyan-300">${t.certsIssued ?? 0}</td>
+        <td class="p-2 text-center">${t.usageCount ?? 0}</td>
+        <td class="p-2 text-xs text-slate-400">${t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString() : 'never'}${t.lastUsedCN ? `<br><span class="mono">${t.lastUsedCN}</span>` : ''}</td>
+        <td class="p-2 whitespace-nowrap text-xs">
+          <button class="rounded border border-slate-600 px-2 py-1" onclick="showTokenUsage('${t.id}')">Usage</button>
+          ${t.revoked ? `<button class="rounded border border-emerald-500/50 px-2 py-1 text-emerald-300" onclick="tokenAction('${t.id}','restore')">Restore</button>` : `<button class="rounded border border-amber-500/50 px-2 py-1 text-amber-300" onclick="tokenAction('${t.id}','revoke')">Revoke</button>`}
+          <button class="rounded border border-red-500/50 px-2 py-1 text-red-300" onclick="deleteToken('${t.id}')">✕</button>
+        </td>
+      </tr>`).join('');
+  }
+  function toggleAllToks(v) { document.querySelectorAll('.tok-check').forEach(c => c.checked = v); }
+  async function createApiToken() {
+    const name = prompt('Token name (e.g. FreeRADIUS backend, Traefik):');
+    if (!name) return;
+    await apiFetch('/api/admin/tokens', { method: 'POST', headers: authH(), body: JSON.stringify({ name }) });
+    loadTokens();
+  }
+  async function tokenAction(id, act) {
+    await apiFetch(`/api/admin/tokens/${id}/${act}`, { method: 'POST', headers: authH() });
+    loadTokens();
+  }
+  async function deleteToken(id) {
+    if (!confirm('Permanently delete this token? (Prefer Revoke for audit trail.)')) return;
+    await apiFetch(`/api/admin/tokens/${id}`, { method: 'DELETE', headers: authH() });
+    loadTokens();
+  }
+  async function tokenBulk(action) {
+    const ids = [...document.querySelectorAll('.tok-check:checked')].map(c => c.value);
+    if (!ids.length) return toast('Select tokens first');
+    if (!confirm(`${action} ${ids.length} token(s)?`)) return;
+    const r = await apiFetch('/api/admin/tokens/bulk', { method: 'POST', headers: authH(), body: JSON.stringify({ ids, action }) });
+    const d = await r.json(); if (d.success) toast(`${action}: ${d.affected}`); else toast(errMsg(d), true);
+    loadTokens();
+  }
+  async function showTokenUsage(id) {
+    const r = await apiFetch(`/api/admin/tokens/${id}/usage`, { headers: authH() });
+    const d = await r.json();
+    const card = document.getElementById('token-usage-card');
+    card.classList.remove('hidden');
+    document.getElementById('token-usage-title').textContent = `Usage: ${d.token.name} — ${d.certificates.length} cert(s)`;
+    document.getElementById('token-usage-list').innerHTML = d.certificates.length
+      ? d.certificates.map(c => `<div class="border-t border-slate-800 py-1 mono text-xs">0x${c.serial} · ${(c.sanDomains || []).join(', ')} · ${c.status}</div>`).join('')
+      : '<span class="text-slate-500">No certificates issued with this key yet.</span>';
+    card.scrollIntoView({ behavior: 'smooth' });
+  }
 
-        // Auto pre-populate the certificate issuance form if blank
-        const certCnEl = document.getElementById('cert-cn');
-        if (!certCnEl.value && p.domainSuffix) {
-          certCnEl.value = `app.${p.domainSuffix}`;
-          document.getElementById('cert-sans').value = `app.${p.domainSuffix}, api.${p.domainSuffix}`;
-          document.getElementById('cert-days').value = p.defaultDays || 90;
-        }
-      } catch (e) {}
-    }
+  async function loadProfile() {
+    try {
+      const res = await apiFetch('/api/admin/profile', { headers: authH() });
+      const p = await res.json();
+      document.getElementById('prof-org').value = p.orgName || '';
+      document.getElementById('prof-domain').value = p.domainSuffix || '';
+      document.getElementById('prof-country').value = p.country || 'US';
+      document.getElementById('prof-state').value = p.state || '';
+      document.getElementById('prof-city').value = p.city || '';
+      document.getElementById('prof-days').value = p.defaultDays || 90;
+    } catch (e) {}
+  }
+  async function saveProfile() {
+    const res = await apiFetch('/api/admin/profile', { method: 'POST', headers: authH(), body: JSON.stringify({ orgName: document.getElementById('prof-org').value, domainSuffix: document.getElementById('prof-domain').value, country: document.getElementById('prof-country').value, state: document.getElementById('prof-state').value, city: document.getElementById('prof-city').value, defaultDays: document.getElementById('prof-days').value }) });
+    if (res.ok) { document.getElementById('prof-saved-msg').classList.remove('hidden'); setTimeout(() => document.getElementById('prof-saved-msg').classList.add('hidden'), 2500); }
+  }
 
-    async function saveProfile() {
-      const payload = {
-        orgName: document.getElementById('prof-org').value,
-        domainSuffix: document.getElementById('prof-domain').value,
-        country: document.getElementById('prof-country').value,
-        state: document.getElementById('prof-state').value,
-        city: document.getElementById('prof-city').value,
-        defaultDays: document.getElementById('prof-days').value
-      };
-
-      const res = await fetch('/api/admin/profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        const msg = document.getElementById('prof-saved-msg');
-        msg.style.display = 'inline-flex';
-        setTimeout(() => msg.style.display = 'none', 3000);
-        loadProfile();
-      } else {
-        alert('Failed to save profile defaults.');
-      }
-    }
-
-    async function deleteToken(id) {
-      if (!confirm('Are you sure you want to revoke this API token?')) return;
-      await fetch(`/api/admin/tokens/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${authToken}` }
-      });
-      loadTokens();
-    }
-
-    // ------------------------------------------------------------------
-    // Certificate Viewer Handlers
-    // ------------------------------------------------------------------
-    function handleCertFileSelect(e) {
-      const file = e.target.files[0];
-      if (file) readFileAndInspect(file);
-    }
-
-    function handleCertDrop(e) {
-      e.preventDefault();
-      e.currentTarget.style.borderColor = 'rgba(6, 182, 212, 0.4)';
-      if (e.dataTransfer.files.length > 0) {
-        readFileAndInspect(e.dataTransfer.files[0]);
-      }
-    }
-
-    function readFileAndInspect(file) {
-      const reader = new FileReader();
-      if (file.name.endsWith('.der') || file.name.endsWith('.cer')) {
-        reader.readAsDataURL(file);
-      } else {
-        reader.readAsText(file);
-      }
-      reader.onload = () => {
-        sendToInspector(reader.result);
-      };
-    }
-
-    function parsePastedCert() {
-      const text = document.getElementById('viewer-paste-input').value.trim();
-      if (!text) return alert('Please paste certificate or CSR text first.');
-      sendToInspector(text);
-    }
-
-    async function sendToInspector(content) {
-      try {
-        const res = await fetch('/api/admin/parse-cert', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
-          body: JSON.stringify({ content })
-        });
-        const data = await res.json();
-        if (data.success) {
-          renderParsedCert(data);
-        } else {
-          alert(data.error || 'Failed to parse certificate');
-        }
-      } catch (err) {
-        alert(err.message);
-      }
-    }
-
-    function renderParsedCert(cert) {
-      document.getElementById('view-kind').textContent = cert.kind || 'X.509 Certificate';
-      document.getElementById('view-subject').textContent = cert.subject || '-';
-      document.getElementById('view-issuer').textContent = cert.issuer || '-';
-      document.getElementById('view-serial').textContent = cert.serial || '-';
-      document.getElementById('view-from').textContent = cert.validFrom || '-';
-      document.getElementById('view-to').textContent = cert.validTo || '-';
-      document.getElementById('view-sans').textContent = cert.sans || 'None';
-      document.getElementById('view-raw-text').textContent = cert.fullText || '';
-
-      const badge = document.getElementById('view-ca-badge');
-      if (cert.isCA) {
-        badge.textContent = 'Certificate Authority (CA)';
-        badge.style.background = 'rgba(245, 158, 11, 0.15)';
-        badge.style.color = 'var(--amber)';
-      } else {
-        badge.textContent = 'End Entity (Leaf)';
-        badge.style.background = 'rgba(16, 185, 129, 0.15)';
-        badge.style.color = 'var(--green)';
-      }
-
-      document.getElementById('viewer-result').style.display = 'block';
-      document.getElementById('viewer-result').scrollIntoView({ behavior: 'smooth' });
-    }
-  </script>
+  function handleCertFileSelect(e) { const f = e.target.files[0]; if (f) readFileAndInspect(f); }
+  function readFileAndInspect(file) {
+    const r = new FileReader();
+    r.onload = () => sendToInspector(r.result);
+    if (/\.(der|cer)$/i.test(file.name)) r.readAsDataURL(file); else r.readAsText(file);
+  }
+  function parsePastedCert() { const t = document.getElementById('viewer-paste-input').value.trim(); if (!t) return toast('Paste a certificate first'); sendToInspector(t); }
+  async function sendToInspector(content) {
+    try {
+      const res = await apiFetch('/api/admin/parse-cert', { method: 'POST', headers: authH(), body: JSON.stringify({ content }) });
+      const d = await res.json();
+      if (d.success) {
+        document.getElementById('view-kind').textContent = d.kind || 'Certificate';
+        document.getElementById('view-subject').textContent = d.subject || '-';
+        document.getElementById('view-issuer').textContent = d.issuer || '-';
+        document.getElementById('view-serial').textContent = d.serial || '-';
+        document.getElementById('view-from').textContent = d.validFrom || '-';
+        document.getElementById('view-to').textContent = d.validTo || '-';
+        document.getElementById('view-sans').textContent = d.sans || 'None';
+        document.getElementById('view-raw-text').textContent = d.fullText || '';
+        document.getElementById('viewer-result').classList.remove('hidden');
+      } else toast(errMsg(d, 'Parse failed'), true);
+    } catch (e) { toast(e.message, true); }
+  }
+</script>
 </body>
 </html>
