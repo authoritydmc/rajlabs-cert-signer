@@ -763,7 +763,7 @@ app.get('/install-trust-windows.ps1', (req, res) => {
   const hostUrl = BASE_URL;
   res.setHeader('Content-Type', 'text/plain');
   res.send(`$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrator')
-if (-not $isAdmin) { Start-Process powershell.exe -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -Command `"irm ${hostUrl}/install-trust-windows.ps1 | iex`"") -Verb RunAs; exit }
+if (-not $isAdmin) { Start-Process powershell.exe -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -Command \\"irm ${hostUrl}/install-trust-windows.ps1 | iex\\"") -Verb RunAs; exit }
 $t = [System.IO.Path]::GetTempPath(); $r = Join-Path $t 'r.crt'; $i = Join-Path $t 'i.crt'
 Invoke-WebRequest -Uri '${hostUrl}/certs/root-ca.crt' -OutFile $r -UseBasicParsing
 Invoke-WebRequest -Uri '${hostUrl}/certs/intermediate-ca.crt' -OutFile $i -UseBasicParsing
