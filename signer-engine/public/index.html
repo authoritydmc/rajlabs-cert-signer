@@ -81,6 +81,7 @@
         <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-certs', this)">📜 Issued Certificates</a>
         <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-viewer', this)">🔍 Cert Viewer</a>
         <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-tokens', this)">🔑 API Tokens</a>
+        <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-audit', this)">🧾 Audit Logs</a>
         <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-slate-400 hover:text-white" onclick="showTab('tab-settings', this)">⚙️ Org Profile</a>
         <a class="flex cursor-pointer items-center gap-2 px-5 py-2.5 text-amber-300 hover:text-amber-100" onclick="openOnboarding()">🧙 Setup Wizard</a>
       </nav>
@@ -213,7 +214,7 @@
       <!-- TOKENS -->
       <div id="tab-tokens" class="tab-pane">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
-          <div><h1 class="text-2xl font-extrabold">API Tokens</h1><p class="text-sm text-slate-400">Usage-tracked keys for CI/CD, Traefik, FreeRADIUS backend.</p></div>
+          <div><h1 class="text-2xl font-extrabold">API Tokens</h1><p class="text-sm text-slate-400">Usage-tracked keys for CI/CD, Traefik, FreeRADIUS backend. Click <b>Usage</b> for the cert list.</p></div>
           <div class="flex gap-2">
             <button onclick="tokenBulk('revoke')" class="rounded-lg border border-slate-600 px-3 py-2 text-sm">Revoke sel.</button>
             <button onclick="tokenBulk('restore')" class="rounded-lg border border-slate-600 px-3 py-2 text-sm">Restore sel.</button>
@@ -221,11 +222,31 @@
             <button onclick="createApiToken()" class="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-black">+ New Token</button>
           </div>
         </div>
-        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="text-slate-400"><th class="p-2"><input type="checkbox" id="tok-select-all" onchange="toggleAllToks(this.checked)" /></th><th class="p-2">Name</th><th class="p-2">Key</th><th class="p-2">Status</th><th class="p-2">Certs</th><th class="p-2">Uses</th><th class="p-2">Last used</th><th class="p-2">Actions</th></tr></thead><tbody id="tokens-table-body"></tbody></table></div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4 mb-4">
+          <input id="tok-search" oninput="renderTokens()" placeholder="🔍 Filter by name, key, status…" class="w-full max-w-md rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" />
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="text-slate-400"><th class="p-2"><input type="checkbox" id="tok-select-all" onchange="toggleAllToks(this.checked)" /></th><th class="p-2">Name / scopes / expiry</th><th class="p-2">Key</th><th class="p-2">Status</th><th class="p-2" title="Certificates issued with this key">Certs</th><th class="p-2" title="Sign API calls made with this key">Uses</th><th class="p-2">Last access</th><th class="p-2">Actions</th></tr></thead><tbody id="tokens-table-body"></tbody></table></div>
         <div id="token-usage-card" class="hidden mt-4 rounded-xl border border-slate-700 bg-slate-900 p-5">
           <h3 id="token-usage-title" class="font-bold mb-2">Token usage</h3>
           <div id="token-usage-list" class="text-sm text-slate-300"></div>
         </div>
+      </div>
+
+      <!-- AUDIT -->
+      <div id="tab-audit" class="tab-pane">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div><h1 class="text-2xl font-extrabold">Audit Logs</h1><p class="text-sm text-slate-400">Every login, issuance, revocation, token & CA change. Newest first.</p></div>
+          <button onclick="loadAudit()" class="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-black">↻ Refresh</button>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4 mb-4">
+          <div class="grid gap-3 sm:grid-cols-4">
+            <div><label class="text-xs text-slate-400">Event</label><select id="audit-event" onchange="loadAudit()" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm"><option value="">All events</option></select></div>
+            <div class="sm:col-span-2"><label class="text-xs text-slate-400">Search (actor, IP, serial, name…)</label><input id="audit-q" onkeydown="if(event.key==='Enter')loadAudit()" placeholder="e.g. radius, revoked, 0x1f3…" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm" /></div>
+            <div><label class="text-xs text-slate-400">Rows</label><select id="audit-limit" onchange="loadAudit()" class="mt-1 w-full rounded-lg border border-slate-700 bg-black px-3 py-2 text-sm"><option>50</option><option selected>100</option><option>250</option><option>500</option></select></div>
+          </div>
+          <div id="audit-counts" class="mt-3 flex flex-wrap gap-1.5 text-[11px]"></div>
+        </div>
+        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4 overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr class="text-slate-400"><th class="p-2">Time</th><th class="p-2">Event</th><th class="p-2">Actor</th><th class="p-2">IP</th><th class="p-2">Details</th></tr></thead><tbody id="audit-table-body"><tr><td colspan="5" class="p-4 text-center text-slate-500">Press Refresh…</td></tr></tbody></table></div>
       </div>
 
       <!-- SETTINGS -->
@@ -383,7 +404,7 @@
     document.getElementById('login-view').style.display = 'none';
     document.getElementById('dashboard-view').classList.remove('hidden');
     document.getElementById('dashboard-view').classList.add('lg:flex');
-    loadOverview(); loadCAs(); loadCerts(); loadTokens(); loadProfile(); loadConnectionStatus();
+    loadOverview(); loadCAs(); loadCerts(); loadTokens(); loadProfile(); loadConnectionStatus(); loadAudit();
   }
   function showTab(id, el) {
     document.querySelectorAll('.tab-pane').forEach(t => t.classList.remove('active'));
@@ -393,6 +414,7 @@
     if (id === 'tab-status') loadConnectionStatus();
     if (id === 'tab-tokens') loadTokens();
     if (id === 'tab-certs') loadCerts();
+    if (id === 'tab-audit') loadAudit();
   }
 
   async function loadOverview() {
@@ -501,24 +523,41 @@
     loadCerts(); loadOverview();
   }
 
+  let cachedTokens = [];
   async function loadTokens() {
     const res = await apiFetch('/api/admin/tokens', { headers: authH() });
     const tokens = await res.json();
-    document.getElementById('tokens-table-body').innerHTML = (Array.isArray(tokens) ? tokens : []).map(t => `
+    cachedTokens = Array.isArray(tokens) ? tokens : [];
+    renderTokens();
+  }
+  function renderTokens() {
+    const q = (document.getElementById('tok-search').value || '').toLowerCase();
+    const rows = cachedTokens.filter(t => !q || `${t.name} ${t.token} ${t.status} ${t.issuedViaTokenName || ''}`.toLowerCase().includes(q));
+    document.getElementById('tokens-table-body').innerHTML = rows.length ? rows.map(t => `
       <tr class="border-t border-slate-800">
         <td class="p-2"><input type="checkbox" class="tok-check" value="${t.id}" /></td>
-        <td class="p-2 font-semibold">${t.name}<div class="text-[11px] font-normal text-slate-500">created ${t.createdAt ? new Date(t.createdAt).toLocaleDateString() : '-'}</div></td>
-        <td class="p-2 mono text-xs break-all">${t.token}</td>
-        <td class="p-2">${t.status === 'active' ? '<span class="rounded bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">active</span>' : `<span class="rounded bg-red-500/15 px-2 py-0.5 text-xs text-red-300">${t.status}</span>`}</td>
+        <td class="p-2 font-semibold">${t.name}
+          <div class="text-[11px] font-normal text-slate-500">created ${t.createdAt ? new Date(t.createdAt).toLocaleDateString() : '-'}</div>
+          <div class="text-[11px] font-normal text-slate-500">scopes: ${(t.scopes || []).join(', ')}</div>
+          <div class="text-[11px] font-normal ${t.expiresAt ? 'text-amber-300' : 'text-slate-600'}">${t.expiresAt ? 'expires ' + new Date(t.expiresAt).toLocaleDateString() : 'no expiry'}</div>
+        </td>
+        <td class="p-2 mono text-xs break-all"><span title="${t.token}">${t.token.slice(0, 18)}…</span><br><button class="mt-1 rounded border border-slate-600 px-2 py-0.5 text-[11px]" onclick="copyKey('${t.id}')">📋 Copy</button></td>
+        <td class="p-2">${t.status === 'active' ? '<span class="rounded bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">active</span>' : `<span class="rounded bg-red-500/15 px-2 py-0.5 text-xs text-red-300">${t.status}</span>`}${t.revokedAt ? `<div class="text-[10px] text-slate-500">${new Date(t.revokedAt).toLocaleDateString()}</div>` : ''}</td>
         <td class="p-2 text-center font-bold text-cyan-300">${t.certsIssued ?? 0}</td>
         <td class="p-2 text-center">${t.usageCount ?? 0}</td>
-        <td class="p-2 text-xs text-slate-400">${t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString() : 'never'}${t.lastUsedCN ? `<br><span class="mono">${t.lastUsedCN}</span>` : ''}</td>
+        <td class="p-2 text-xs text-slate-400">${t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString() : '<span class="text-slate-600">never</span>'}${t.lastUsedCN ? `<br><span class="mono text-cyan-300">${t.lastUsedCN}</span>` : ''}</td>
         <td class="p-2 whitespace-nowrap text-xs">
           <button class="rounded border border-slate-600 px-2 py-1" onclick="showTokenUsage('${t.id}')">Usage</button>
           ${t.revoked ? `<button class="rounded border border-emerald-500/50 px-2 py-1 text-emerald-300" onclick="tokenAction('${t.id}','restore')">Restore</button>` : `<button class="rounded border border-amber-500/50 px-2 py-1 text-amber-300" onclick="tokenAction('${t.id}','revoke')">Revoke</button>`}
           <button class="rounded border border-red-500/50 px-2 py-1 text-red-300" onclick="deleteToken('${t.id}')">✕</button>
         </td>
-      </tr>`).join('');
+      </tr>`).join('') : '<tr><td colspan="8" class="p-4 text-center text-slate-500">No tokens match.</td></tr>';
+  }
+  function copyKey(id) {
+    const t = cachedTokens.find(x => x.id === id);
+    if (!t) return;
+    navigator.clipboard.writeText(t.token);
+    toast('API key copied — store it safely, it is shown only here.');
   }
   function toggleAllToks(v) { document.querySelectorAll('.tok-check').forEach(c => c.checked = v); }
   async function createApiToken() {
@@ -554,6 +593,52 @@
       ? d.certificates.map(c => `<div class="border-t border-slate-800 py-1 mono text-xs">0x${c.serial} · ${(c.sanDomains || []).join(', ')} · ${c.status}</div>`).join('')
       : '<span class="text-slate-500">No certificates issued with this key yet.</span>';
     card.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  const AUDIT_EVENT_LABELS = { 'auth.login_ok': '✅ login', 'auth.login_failed': '❌ login failed', 'cert.issued': '📜 issued', 'cert.revoked': '🚫 revoked', 'cert.bulk_revoked': '🚫 bulk revoke', 'token.created': '🔑 token created', 'token.revoked': '🔑 token revoked', 'token.restored': '🔑 token restored', 'token.deleted': '🔑 token deleted', 'token.bulk': '🔑 token bulk', 'ca.imported': '🏛️ CA imported', 'ca.activated': '🏛️ CA activated', 'ca.deleted': '🏛️ CA deleted' };
+  function auditDetails(e) {
+    const d = e.details || {};
+    const parts = [];
+    if (d.user) parts.push(`user=${d.user}`);
+    if (d.serial) parts.push(`<span class="mono">0x${d.serial}</span>`);
+    if (d.cn) parts.push(`cn=<span class="mono">${d.cn}</span>`);
+    if (d.via) parts.push(`via=${d.via}`);
+    if (d.name) parts.push(`name=${d.name}`);
+    if (d.id) parts.push(`<span class="mono" title="${d.id}">id=${String(d.id).slice(0, 8)}…</span>`);
+    if (d.reason) parts.push(`reason=${d.reason}`);
+    if (d.action) parts.push(`action=${d.action}`);
+    if (d.affected !== undefined) parts.push(`affected=${d.affected}`);
+    if (d.revoked !== undefined) parts.push(`revoked=${d.revoked}`);
+    if (d.certsIssued !== undefined) parts.push(`certs=${d.certsIssued}`);
+    if (d.active !== undefined) parts.push(`active=${d.active}`);
+    return parts.join(' · ') || '<span class="text-slate-600">—</span>';
+  }
+  async function loadAudit() {
+    const sel = document.getElementById('audit-event');
+    // Populate event dropdown once from server counts
+    try {
+      const params = new URLSearchParams({ limit: document.getElementById('audit-limit').value || '100', offset: '0' });
+      const ev = sel.value; if (ev) params.set('event', ev);
+      const q = document.getElementById('audit-q').value.trim(); if (q) params.set('q', q);
+      const res = await apiFetch('/api/admin/audit?' + params.toString(), { headers: authH() });
+      const d = await res.json();
+      if (!d.success) { toast(errMsg(d, 'Audit load failed'), true); return; }
+      if (!sel.options.length || sel.options.length <= 1) {
+        const cur = sel.value;
+        sel.innerHTML = '<option value="">All events</option>' + Object.keys(d.eventCounts || {}).sort().map(e => `<option value="${e}">${AUDIT_EVENT_LABELS[e] || e} (${d.eventCounts[e]})</option>`).join('');
+        sel.value = cur;
+      }
+      document.getElementById('audit-counts').innerHTML = `<span class="text-slate-500">showing ${d.entries.length} of ${d.total}</span>` +
+        Object.keys(d.eventCounts || {}).sort().map(e => `<button onclick="document.getElementById('audit-event').value='${e}';loadAudit()" class="rounded-full border border-slate-700 px-2 py-0.5 text-slate-300 hover:border-cyan-500">${AUDIT_EVENT_LABELS[e] || e} · ${d.eventCounts[e]}</button>`).join('');
+      document.getElementById('audit-table-body').innerHTML = d.entries.length ? d.entries.map(e => `
+        <tr class="border-t border-slate-800">
+          <td class="p-2 text-xs text-slate-400 whitespace-nowrap">${e.ts ? new Date(e.ts).toLocaleString() : '-'}</td>
+          <td class="p-2 text-xs whitespace-nowrap">${AUDIT_EVENT_LABELS[e.event] || e.event}</td>
+          <td class="p-2 text-xs">${e.actor || '—'}</td>
+          <td class="p-2 text-xs text-slate-500 mono">${e.ip || '—'}</td>
+          <td class="p-2 text-xs text-slate-300">${auditDetails(e)}</td>
+        </tr>`).join('') : '<tr><td colspan="5" class="p-4 text-center text-slate-500">No audit entries yet — logins, issuance and token changes will appear here.</td></tr>';
+    } catch (e) { toast('Audit load failed: ' + e.message, true); }
   }
 
   async function loadProfile() {

@@ -414,10 +414,29 @@ Empty system → `503 CA_NOT_AVAILABLE` with setup instructions + `setupUrl: /on
 - Leave `BASE_URL` **unset** to auto-detect per request (domain moves need no redeploy); set it only to pin ACME/CRL/installer URLs.
 - UI prefixes every API/asset call with the detected base — this fixes logins previously hitting `backend.rajlabs.in/api/auth/login` instead of `backend.rajlabs.in/cert-signer/api/auth/login`.
 
+## 🔑 API Management Screen
+
+The **API Tokens** tab is the full key-management console — no CLI needed:
+
+- Table columns: name/scopes/expiry, key (masked + 📋 Copy), status badge
+  (`active`/`revoked`/`expired` + revoked date), **certs issued**, **sign-API uses**,
+  **last access** (timestamp + last CN).
+- 🔍 live filter box; ☑ multi-select with **bulk revoke / restore / delete**.
+- **Usage** button per key → cert list issued with that key (`GET /api/admin/tokens/:id/usage`).
+- Prefer **Revoke** (reversible, audit-kept) over ✕ delete.
+
+## 🧾 Audit Logs Tab
+
+- Dedicated tab polling **`GET /api/admin/audit?event=&q=&limit=&offset=`**
+  (Bearer auth, newest-first, max 500/page) with event dropdown, free-text
+  search, count chips, and a details column (serial, CN, actor, IP, reason).
+- Covers `auth.login_ok/failed`, `cert.issued/revoked/bulk_revoked`,
+  `token.created/revoked/restored/deleted/bulk`, `ca.imported/activated/deleted`.
+
 ## 📝 Enterprise Logging
 
 - Structured JSONL to stdout (`LOG_LEVEL=debug|info|warn|error`), request ids + latency, secrets redacted.
-- Audit trail (`auth.login_ok/failed`, `cert.issued/revoked`, `token.*`, `ca.*`) → stdout (`level: audit`) + `DATA_DIR/logs/audit.log`.
+- Audit trail → stdout (`level: audit`) + `DATA_DIR/logs/audit.log`, readable in-UI via the Audit tab.
 
 ---
 

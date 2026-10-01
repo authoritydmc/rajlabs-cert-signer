@@ -1355,6 +1355,36 @@ app.get('/api/v1/status', (req, res) => {
   });
 });
 
+// Audit log viewer (admin). Query: ?event=token.created&?q=radius&?limit=100&?offset=0
+app.get('/api/admin/audit', authMiddleware, (req, res) => {
+  try {
+    const logFile = path.join(DATA_DIR, 'logs', 'audit.log');
+    if (!fs.existsSync(logFile)) return res.json({ success: true, total: 0, entries: [] });
+    const lines = fs.readFileSync(logFile, 'utf8').split('\n').filter(Boolean);
+    const entries = [];
+    for (const line of lines) {
+      try { entries.push(JSON.parse(line)); } catch (e) { /* skip corrupt line */ }
+    }
+    entries.reverse(); // newest first
+    const { event, q } = req.query || {};
+    let filtered = entries;
+    if (event) filtered = filtered.filter(e => e.event === event);
+    if (q) {
+      const needle = String(q).toLowerCase();
+      filtered = filtered.filter(e => JSON.stringify(e).toLowerCase().includes(needle));
+    }
+    const limit = Math.max(1, Math.min(500, parseInt(req.query.limit, 10) || 100));
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const page = filtered.slice(offset, offset + limit);
+    const eventCounts = {};
+    for (const e of entries) eventCounts[e.event] = (eventCounts[e.event] || 0) + 1;
+    res.json({ success: true, total: filtered.length, limit, offset, entries: page, eventCounts });
+  } catch (e) {
+    logger.error('audit.read_failed', { error: e.message });
+    return sendError(res, 500, 'INTERNAL_ERROR', 'Could not read audit log: ' + e.message);
+  }
+});
+
 // Authenticated deep-health for admin Status tab (openssl present, key decrypt ok)
 app.get('/api/admin/health-detail', authMiddleware, (req, res) => {
   const db = getLocalDB();
