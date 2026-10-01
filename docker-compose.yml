@@ -1,53 +1,29 @@
 services:
-  # -------------------------------------------------------------
-  # 1. Custom PKI Certificate Signer Engine (ACME & REST API)
-  #    Signs end-entity certificates strictly with the Intermediate CA
-  #    Root CA private key is never imported or mounted!
-  # -------------------------------------------------------------
   cert-signer:
     build:
-      context: ./signer-engine
+      context: .
       dockerfile: Dockerfile
     container_name: rajlabs-cert-signer
     restart: unless-stopped
     ports:
-      - "${SIGNER_PORT:-9000}:9000"
+      - "${PORT:-9000}:9000"
     environment:
       - PORT=9000
-      - BASE_URL=${SIGNER_BASE_URL:-https://localhost:9000}
-      - CA_NAME=${CA_INTERMEDIATE_NAME:-int-server}
+      - BASE_URL=${BASE_URL:-http://localhost:9000}
+      - CA_NAME=${CA_NAME:-int-server}
       - DAYS_VALID=${DAYS_VALID:-90}
       - AUTH_TOKEN=${AUTH_TOKEN:-rajlabs-secure-api-key-9988}
-      - CRL_OUTPUT_PATH=/crl-public/crl
+      # In Coolify, you can also paste these directly as environment variables:
+      - INTERMEDIATE_CERT_PEM=${INTERMEDIATE_CERT_PEM:-}
+      - INTERMEDIATE_KEY_PEM=${INTERMEDIATE_KEY_PEM:-}
+      - ROOT_CERT_PEM=${ROOT_CERT_PEM:-}
     volumes:
-      # Intermediate keys mounted read-only from host (ROOT CA PRIVATE KEY IS NEVER MOUNTED)
+      # Persistent database, serial numbers, CRLs, and issued certificates
+      - cert_signer_data:/app/data
+      # Optional host mounts (if not using env variables)
       - ./mounted-ca/certs:/app/ca-certs:ro
       - ./mounted-ca/private:/app/ca-keys:ro
-      # Storage for issued certs, database, and accounts
-      - ./data/signer-db:/app/data
-      # Shared volume with CRL distributor
-      - ./crl-web/public/crl:/crl-public/crl
-    networks:
-      - rajlabs-pki-net
 
-  # -------------------------------------------------------------
-  # 2. CRL & Public Chain Distribution Service (NGINX)
-  #    Serves:
-  #    - http://<host>:8080/crl/
-  #    - http://<host>:8080/certs/
-  # -------------------------------------------------------------
-  crl-distribution:
-    image: nginx:alpine
-    container_name: rajlabs-crl-distribution
-    restart: unless-stopped
-    ports:
-      - "${CRL_PORT:-8080}:80"
-    volumes:
-      - ./crl-web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./crl-web/public:/usr/share/nginx/html:ro
-    networks:
-      - rajlabs-pki-net
-
-networks:
-  rajlabs-pki-net:
-    driver: bridge
+volumes:
+  cert_signer_data:
+    driver: local

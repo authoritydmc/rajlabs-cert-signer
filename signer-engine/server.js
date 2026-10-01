@@ -5,31 +5,46 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
-app.use(express.json());
-app.use(express.text({ type: ['text/*', 'application/pkcs10', 'application/x-pem-file'] }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.text({ type: ['text/*', 'application/pkcs10', 'application/x-pem-file'], limit: '10mb' }));
 
-const PORT = process.env.PORT || 9000;
+const PORT = parseInt(process.env.PORT || '9000', 10);
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
 const CA_NAME = process.env.CA_NAME || 'int-server';
 const DAYS_VALID = parseInt(process.env.DAYS_VALID || '90', 10);
 const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
 
-const CA_CERT_PATH = path.join('/app/ca-certs', `${CA_NAME}.cert.pem`);
-const CA_KEY_PATH = path.join('/app/ca-keys', `${CA_NAME}.key.pem`);
-const ROOT_CERT_PATH = path.join('/app/ca-certs', 'root-ca.cert.pem');
-
-const DATA_DIR = path.join('/app/data');
+// Storage and file paths (supports both Coolify volume mounts or environment-injected certs/keys)
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const CA_CERTS_DIR = process.env.CA_CERTS_DIR || path.join(__dirname, 'ca-certs');
+const CA_KEYS_DIR = process.env.CA_KEYS_DIR || path.join(__dirname, 'ca-keys');
 const CERTS_DIR = path.join(DATA_DIR, 'issued-certs');
-const CRL_DIR = process.env.CRL_OUTPUT_PATH || path.join(DATA_DIR, 'crl');
+const CRL_DIR = path.join(DATA_DIR, 'crl');
+const PUBLIC_DIR = path.join(DATA_DIR, 'public');
 const DB_FILE = path.join(DATA_DIR, 'database.json');
 const SERIAL_FILE = path.join(DATA_DIR, 'serial');
 
-[DATA_DIR, CERTS_DIR, CRL_DIR].forEach(dir => {
+[DATA_DIR, CA_CERTS_DIR, CA_KEYS_DIR, CERTS_DIR, CRL_DIR, PUBLIC_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
+// Support loading Intermediate CA & Root CA directly from environment variables (great for Coolify!)
+const CA_CERT_PATH = path.join(CA_CERTS_DIR, `${CA_NAME}.cert.pem`);
+const CA_KEY_PATH = path.join(CA_KEYS_DIR, `${CA_NAME}.key.pem`);
+const ROOT_CERT_PATH = path.join(CA_CERTS_DIR, 'root-ca.cert.pem');
+
+if (process.env.INTERMEDIATE_CERT_PEM && !fs.existsSync(CA_CERT_PATH)) {
+  fs.writeFileSync(CA_CERT_PATH, process.env.INTERMEDIATE_CERT_PEM.replace(/\\n/g, '\n'));
+}
+if (process.env.INTERMEDIATE_KEY_PEM && !fs.existsSync(CA_KEY_PATH)) {
+  fs.writeFileSync(CA_KEY_PATH, process.env.INTERMEDIATE_KEY_PEM.replace(/\\n/g, '\n'), { mode: 0o600 });
+}
+if (process.env.ROOT_CERT_PEM && !fs.existsSync(ROOT_CERT_PATH)) {
+  fs.writeFileSync(ROOT_CERT_PATH, process.env.ROOT_CERT_PEM.replace(/\\n/g, '\n'));
+}
+
 if (!fs.existsSync(DB_FILE)) {
-  fs.writeFileSync(DB_FILE, JSON.stringify({ certificates: [], revocations: [], accounts: [] }, null, 2));
+  fs.writeFileSync(DB_FILE, JSON.stringify({ certificates: [], accounts: [] }, null, 2));
 }
 if (!fs.existsSync(SERIAL_FILE)) {
   fs.writeFileSync(SERIAL_FILE, '2000\n');
@@ -54,6 +69,10 @@ function saveDB(data) {
 // Core Signing Logic (Using OpenSSL directly with Intermediate CA)
 // ------------------------------------------------------------------
 function signCSR(csrPem, sanDomains = [], days = DAYS_VALID) {
+  if (!fs.existsSync(CA_CERT_PATH) || !fs.existsSync(CA_KEY_PATH)) {
+    throw new Error(`Intermediate CA certificate or private key missing! Looked in: ${CA_CERT_PATH}`);
+  }
+
   const certId = uuidv4();
   const serial = getNextSerial();
   const tempCsr = path.join('/tmp', `${certId}.csr`);
@@ -78,7 +97,7 @@ function signCSR(csrPem, sanDomains = [], days = DAYS_VALID) {
 
   fs.writeFileSync(tempExt, extContent.join('\n'));
 
-  // Sign using intermediate CA
+  // Sign with intermediate CA
   const cmd = `openssl x509 -req -in "${tempCsr}" -CA "${CA_CERT_PATH}" -CAkey "${CA_KEY_PATH}" -set_serial 0x${serial} -out "${tempCert}" -days ${days} -sha256 -extfile "${tempExt}"`;
   execSync(cmd, { stdio: 'pipe' });
 
@@ -87,7 +106,7 @@ function signCSR(csrPem, sanDomains = [], days = DAYS_VALID) {
   const rootCert = fs.existsSync(ROOT_CERT_PATH) ? fs.readFileSync(ROOT_CERT_PATH, 'utf8') : '';
   const fullChain = `${issuedCert.trim()}\n${intermediateCert.trim()}\n${rootCert.trim()}`.trim();
 
-  // Save issued cert to archive
+  // Save issued cert to storage
   fs.writeFileSync(path.join(CERTS_DIR, `${certId}.crt`), issuedCert);
   fs.writeFileSync(path.join(CERTS_DIR, `${certId}-chain.crt`), fullChain);
 
@@ -116,6 +135,8 @@ function signCSR(csrPem, sanDomains = [], days = DAYS_VALID) {
 // CRL Generation
 // ------------------------------------------------------------------
 function generateCRL() {
+  if (!fs.existsSync(CA_CERT_PATH) || !fs.existsSync(CA_KEY_PATH)) return;
+
   const crlFile = path.join(CRL_DIR, `${CA_NAME}.crl`);
   const caIndex = path.join(DATA_DIR, 'index.txt');
   const caSerial = path.join(DATA_DIR, 'crlnumber');
@@ -138,10 +159,105 @@ default_crl_days = 30
   try {
     execSync(`openssl ca -gencrl -keyfile "${CA_KEY_PATH}" -cert "${CA_CERT_PATH}" -config "${cnfFile}" -out "${crlFile}"`, { stdio: 'pipe' });
   } catch (err) {
-    // Fallback self-crl if OpenSSL index is blank
     console.error('CRL gen notice:', err.message);
   }
 }
+
+// ------------------------------------------------------------------
+// Client Installer Script Generators (Windows & Linux)
+// ------------------------------------------------------------------
+app.get('/install-trust-windows.ps1', (req, res) => {
+  const hostUrl = BASE_URL;
+  const script = `# Rajlabs Windows Trust Installer
+$ErrorActionPreference = 'Stop'
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Start-Process powershell.exe -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -Command `"irm ${hostUrl}/install-trust-windows.ps1 | iex`"") -Verb RunAs
+    exit
+}
+$temp = [System.IO.Path]::GetTempPath()
+$rootFile = Join-Path $temp 'rajlabs-root.crt'
+$intFile  = Join-Path $temp 'rajlabs-int.crt'
+Invoke-WebRequest -Uri '${hostUrl}/certs/root-ca.crt' -OutFile $rootFile -UseBasicParsing
+Invoke-WebRequest -Uri '${hostUrl}/certs/intermediate-ca.crt' -OutFile $intFile -UseBasicParsing
+
+$rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
+$rootStore.Open('ReadWrite')
+$rootStore.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($rootFile)))
+$rootStore.Close()
+
+$intStore = New-Object System.Security.Cryptography.X509Certificates.X509Store('CertificateAuthority', 'LocalMachine')
+$intStore.Open('ReadWrite')
+$intStore.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($intFile)))
+$intStore.Close()
+Write-Host '[SUCCESS] Rajlabs CA trust chain installed successfully!' -ForegroundColor Green
+`;
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(script);
+});
+
+app.get('/install-trust-linux.sh', (req, res) => {
+  const hostUrl = BASE_URL;
+  const script = `#!/bin/bash
+set -e
+if [ "$EUID" -ne 0 ]; then echo "Please run as root or with sudo."; exit 1; fi
+TEMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TEMP_DIR"' EXIT
+curl -fsSL "${hostUrl}/certs/root-ca.crt" -o "$TEMP_DIR/rajlabs-root.crt"
+curl -fsSL "${hostUrl}/certs/intermediate-ca.crt" -o "$TEMP_DIR/rajlabs-int.crt"
+
+if [ -d "/usr/local/share/ca-certificates" ]; then
+    cp "$TEMP_DIR/rajlabs-root.crt" /usr/local/share/ca-certificates/
+    cp "$TEMP_DIR/rajlabs-int.crt" /usr/local/share/ca-certificates/
+    update-ca-certificates
+elif [ -d "/etc/pki/ca-trust/source/anchors" ]; then
+    cp "$TEMP_DIR/rajlabs-root.crt" /etc/pki/ca-trust/source/anchors/
+    cp "$TEMP_DIR/rajlabs-int.crt" /etc/pki/ca-trust/source/anchors/
+    update-ca-trust extract
+fi
+echo "[SUCCESS] Rajlabs CA trust chain installed successfully!"
+`;
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(script);
+});
+
+// ------------------------------------------------------------------
+// Public Certificate & CRL Serving
+// ------------------------------------------------------------------
+app.get('/certs/root-ca.crt', (req, res) => {
+  if (fs.existsSync(ROOT_CERT_PATH)) {
+    res.setHeader('Content-Type', 'application/x-x509-ca-cert');
+    res.send(fs.readFileSync(ROOT_CERT_PATH));
+  } else {
+    res.status(404).send('Root CA certificate not available');
+  }
+});
+
+app.get('/certs/intermediate-ca.crt', (req, res) => {
+  if (fs.existsSync(CA_CERT_PATH)) {
+    res.setHeader('Content-Type', 'application/x-x509-ca-cert');
+    res.send(fs.readFileSync(CA_CERT_PATH));
+  } else {
+    res.status(404).send('Intermediate CA certificate not available');
+  }
+});
+
+app.get('/certs/ca-chain.crt', (req, res) => {
+  const intCert = fs.existsSync(CA_CERT_PATH) ? fs.readFileSync(CA_CERT_PATH, 'utf8') : '';
+  const rootCert = fs.existsSync(ROOT_CERT_PATH) ? fs.readFileSync(ROOT_CERT_PATH, 'utf8') : '';
+  res.setHeader('Content-Type', 'application/x-x509-ca-cert');
+  res.send(`${intCert.trim()}\n${rootCert.trim()}\n`);
+});
+
+app.get('/crl/:caName.crl', (req, res) => {
+  const file = path.join(CRL_DIR, `${req.params.caName}.crl`);
+  if (fs.existsSync(file)) {
+    res.setHeader('Content-Type', 'application/pkix-crl');
+    res.send(fs.readFileSync(file));
+  } else {
+    res.status(404).send('CRL not found');
+  }
+});
 
 // ------------------------------------------------------------------
 // ACME Directory & RFC 8555 Endpoints
@@ -285,11 +401,18 @@ app.post('/api/v1/revoke', (req, res) => {
   res.json({ success: true, message: `Certificate ${serial} revoked and CRL updated.` });
 });
 
-app.get('/api/v1/health', (req, res) => {
+app.get('/health', (req, res) => {
+  const hasIntCert = fs.existsSync(CA_CERT_PATH);
+  const hasIntKey = fs.existsSync(CA_KEY_PATH);
+  const hasRootCert = fs.existsSync(ROOT_CERT_PATH);
+
   res.json({
-    status: 'healthy',
+    status: hasIntCert && hasIntKey ? 'healthy' : 'degraded',
     intermediateCA: CA_NAME,
-    rootKeyMounted: false, // Security assurance
+    intermediateCertLoaded: hasIntCert,
+    intermediateKeyLoaded: hasIntKey,
+    rootCertLoaded: hasRootCert,
+    rootPrivateKeyMounted: false, // Strict Zero-Trust assurance
     uptimeSeconds: process.uptime()
   });
 });

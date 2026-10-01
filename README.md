@@ -47,7 +47,23 @@ Mount the desired Intermediate CA into the signer without touching the Root CA:
 .\import-intermediate.ps1 -TargetIntermediate "int-server"
 ```
 
-### 2. Start the Signer Services
+### 2. Deploy on Coolify (1-Click or Git Source)
+
+This project has a production **root `Dockerfile`** specifically designed for Coolify:
+
+1. In Coolify, create a new **Service / Application** -> **From Git Repository**.
+2. Point it to: `https://github.com/authoritydmc/rajlabs-cert-signer`.
+3. Set **Build Pack**: `Dockerfile` (or `Docker Compose`).
+4. Set **Port**: `9000`.
+5. Under **Environment Variables**, you can supply your Intermediate CA and Root Certificate directly (safe & encrypted inside Coolify):
+   - `CA_NAME=int-server`
+   - `INTERMEDIATE_CERT_PEM` = Content of `int-server.cert.pem`
+   - `INTERMEDIATE_KEY_PEM`  = Content of `int-server.key.pem`
+   - `ROOT_CERT_PEM`          = Content of `root-ca.cert.pem`
+   - `AUTH_TOKEN`             = Your secure API token
+6. Click **Deploy**! Coolify will automatically provision persistent storage, build the container, and assign SSL/Traefik domain routing.
+
+### Or Run Locally with Docker:
 ```bash
 docker compose up -d --build
 ```
