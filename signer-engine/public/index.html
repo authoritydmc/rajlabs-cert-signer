@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rajlabs PKI & Certificate Signer Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #111827;
+      --border: #1f2937;
+      --cyan: #06b6d4;
+      --blue: #3b82f6;
+      --green: #10b981;
+      --red: #ef4444;
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --code-bg: #070a13;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+    body { background-color: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+
+    /* Login Overlay */
+    #login-view {
+      position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 1000;
+    }
+    .login-card {
+      background: var(--card-bg); border: 1px solid var(--border); border-radius: 1rem; padding: 2.5rem; width: 100%; max-width: 420px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);
+    }
+
+    /* Dashboard Layout */
+    #dashboard-view { display: none; width: 100vw; height: 100vh; flex-direction: row; }
+    aside { width: 260px; background: #080d1a; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+    .brand { padding: 1.5rem; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 1.15rem; color: var(--cyan); display: flex; align-items: center; gap: 0.5rem; }
+    nav { flex: 1; padding: 1rem 0; }
+    nav a { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1.5rem; color: var(--text-muted); text-decoration: none; font-size: 0.95rem; cursor: pointer; transition: all 0.2s; }
+    nav a:hover, nav a.active { color: var(--text); background: rgba(6, 182, 212, 0.1); border-left: 3px solid var(--cyan); }
+
+    main { flex: 1; overflow-y: auto; padding: 2rem; }
+    .section-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .section-desc { color: var(--text-muted); margin-bottom: 1.5rem; font-size: 0.95rem; }
+
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.5rem; margin-bottom: 1.5rem; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.25rem; }
+    .stat-val { font-size: 1.8rem; font-weight: 700; color: var(--cyan); margin-top: 0.25rem; }
+
+    /* Forms & Inputs */
+    label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 0.35rem; color: #cbd5e1; }
+    input, textarea, select { width: 100%; background: var(--code-bg); border: 1px solid var(--border); border-radius: 0.5rem; color: var(--text); padding: 0.65rem 0.85rem; margin-bottom: 1rem; font-size: 0.9rem; }
+    textarea { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; resize: vertical; }
+    input:focus, textarea:focus { border-color: var(--cyan); outline: none; }
+
+    button { background: var(--cyan); color: #000; border: none; padding: 0.65rem 1.25rem; border-radius: 0.5rem; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+    button:hover { opacity: 0.9; }
+    button.btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    button.btn-danger { background: var(--red); color: #fff; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }
+    th { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); color: var(--text-muted); font-weight: 600; }
+    td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
+    .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .badge-active { background: rgba(16, 185, 129, 0.15); color: var(--green); }
+
+    pre code { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: #38bdf8; display: block; background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. LOGIN OVERLAY -->
+  <div id="login-view">
+    <div class="login-card">
+      <h2 style="font-weight: 800; font-size: 1.6rem; margin-bottom: 0.5rem; color: var(--cyan);">Rajlabs PKI Signer</h2>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Enter administrator credentials to manage CA signers, tokens, and certificates.</p>
+      
+      <div id="login-error" style="color: var(--red); font-size: 0.85rem; margin-bottom: 1rem; display: none;"></div>
+
+      <label>Admin Username</label>
+      <input type="text" id="login-user" value="admin" placeholder="admin" />
+      
+      <label>Admin Password</label>
+      <input type="password" id="login-pass" placeholder="Enter password from docker log" />
+      
+      <button style="width: 100%; margin-top: 0.5rem;" onclick="handleLogin()">Sign In to Dashboard</button>
+      <p style="color: #64748b; font-size: 0.75rem; margin-top: 1.25rem; text-align: center;">Default password auto-generated in <code>admin_credentials.txt</code></p>
+    </div>
+  </div>
+
+  <!-- 2. DASHBOARD VIEW -->
+  <div id="dashboard-view">
+    <aside>
+      <div class="brand">🔒 Rajlabs PKI Signer</div>
+      <nav>
+        <a class="active" onclick="showTab('tab-overview')">📊 Overview</a>
+        <a onclick="showTab('tab-cas')">🏛️ Intermediate CAs</a>
+        <a onclick="showTab('tab-generate')">✍️ Issue Certificate</a>
+        <a onclick="showTab('tab-certs')">📜 Issued Certificates</a>
+        <a onclick="showTab('tab-tokens')">🔑 API Tokens</a>
+        <a onclick="showTab('tab-offline')">🛡️ Offline Root CA Guide</a>
+      </nav>
+      <div style="padding: 1.5rem; border-top: 1px solid var(--border);">
+        <button class="btn-outline" style="width: 100%; font-size: 0.85rem;" onclick="logout()">Sign Out</button>
+      </div>
+    </aside>
+
+    <main>
+      <!-- TAB: OVERVIEW -->
+      <div id="tab-overview" class="tab-pane">
+        <h1 class="section-title">PKI Dashboard</h1>
+        <p class="section-desc">Active status of intermediate signers, ACME protocol, and client trust distribution.</p>
+
+        <div class="grid-3">
+          <div class="stat-card">
+            <span style="color: var(--text-muted); font-size: 0.85rem;">Active Intermediate CA</span>
+            <div class="stat-val" id="stat-active-ca">-</div>
+          </div>
+          <div class="stat-card">
+            <span style="color: var(--text-muted); font-size: 0.85rem;">Total Certificates Issued</span>
+            <div class="stat-val" id="stat-cert-count">0</div>
+          </div>
+          <div class="stat-card">
+            <span style="color: var(--text-muted); font-size: 0.85rem;">Root CA Status</span>
+            <div class="stat-val" style="color: var(--green);">Air-Gapped 🛡️</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin-bottom: 0.75rem;">1-Line Client Device Trust Installer</h3>
+          <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">Run this on client machines to install the Root & Intermediate chain globally without errors:</p>
+          <label>Windows PowerShell (Run as Administrator):</label>
+          <pre><code>irm http://<host>:9000/install-trust-windows.ps1 | iex</code></pre>
+          <label style="margin-top: 1rem;">Linux (Ubuntu, Debian, CentOS, Rocky, Alpine):</label>
+          <pre><code>curl -fsSL http://<host>:9000/install-trust-linux.sh | sudo bash</code></pre>
+        </div>
+      </div>
+
+      <!-- TAB: INTERMEDIATE CAS -->
+      <div id="tab-cas" class="tab-pane" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div>
+            <h1 class="section-title">Intermediate Certificate Authorities</h1>
+            <p class="section-desc">Import and manage Intermediate CAs (Server, WiFi, IoT) signed offline by your Root CA.</p>
+          </div>
+          <button onclick="document.getElementById('import-ca-modal').style.display='block'">+ Import Intermediate CA</button>
+        </div>
+
+        <div class="card">
+          <table>
+            <thead>
+              <tr>
+                <th>Name / Identifier</th>
+                <th>Description</th>
+                <th>Private Key</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="ca-table-body"></tbody>
+          </table>
+        </div>
+
+        <!-- Import Modal -->
+        <div id="import-ca-modal" class="card" style="display: none; border-color: var(--cyan);">
+          <h3 style="margin-bottom: 1rem; color: var(--cyan);">Import Intermediate CA (Stored Encrypted with AES-256)</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div>
+              <label>CA Identifier (e.g. int-server, int-wifi)</label>
+              <input type="text" id="ca-name" placeholder="int-server" />
+              <label>Description</label>
+              <input type="text" id="ca-desc" placeholder="Production Server Signer" />
+              <label><input type="checkbox" id="ca-set-active" checked style="width: auto; margin-right: 0.5rem;" /> Set as default active signer</label>
+            </div>
+            <div>
+              <label>Public Root CA Certificate (PEM)</label>
+              <textarea id="ca-root-cert" rows="3" placeholder="-----BEGIN CERTIFICATE-----..."></textarea>
+            </div>
+          </div>
+          <label>Intermediate Certificate (PEM)</label>
+          <textarea id="ca-cert" rows="3" placeholder="-----BEGIN CERTIFICATE-----..."></textarea>
+          <label>Intermediate Private Key (PEM - encrypted automatically at rest)</label>
+          <textarea id="ca-key" rows="3" placeholder="-----BEGIN RSA PRIVATE KEY-----..."></textarea>
+          
+          <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
+            <button onclick="submitIntermediateCA()">Save & Encrypt to Database</button>
+            <button class="btn-outline" onclick="document.getElementById('import-ca-modal').style.display='none'">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB: ISSUE CERTIFICATE -->
+      <div id="tab-generate" class="tab-pane" style="display: none;">
+        <h1 class="section-title">Issue Leaf Certificate</h1>
+        <p class="section-desc">Generate private key, CSR, and signed full-chain certificate directly from UI.</p>
+
+        <div class="card" style="max-width: 600px;">
+          <label>Primary Common Name (FQDN)</label>
+          <input type="text" id="cert-cn" placeholder="api.rajlabs.local" />
+          <label>Subject Alternative Names (Comma-separated)</label>
+          <input type="text" id="cert-sans" placeholder="api.rajlabs.local, web.rajlabs.local, localhost" />
+          <label>Validity (Days)</label>
+          <input type="number" id="cert-days" value="90" />
+          <button onclick="generateLeafCert()">Generate & Sign Certificate</button>
+        </div>
+
+        <div id="issued-result-card" class="card" style="display: none;">
+          <h3 style="color: var(--green); margin-bottom: 1rem;">✅ Certificate Generated Successfully</h3>
+          <label>Private Key (Keep safe on client):</label>
+          <textarea id="res-key" rows="4" readonly></textarea>
+          <label>Full Certificate Chain (End Entity + Intermediate + Root):</label>
+          <textarea id="res-chain" rows="6" readonly></textarea>
+        </div>
+      </div>
+
+      <!-- TAB: ISSUED CERTS -->
+      <div id="tab-certs" class="tab-pane" style="display: none;">
+        <h1 class="section-title">Issued Certificates</h1>
+        <p class="section-desc">History of all certificates signed by this authority.</p>
+        <div class="card">
+          <table>
+            <thead>
+              <tr>
+                <th>Serial</th>
+                <th>Signer CA</th>
+                <th>SAN Domains</th>
+                <th>Issued At</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="cert-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TAB: API TOKENS -->
+      <div id="tab-tokens" class="tab-pane" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div>
+            <h1 class="section-title">API Tokens</h1>
+            <p class="section-desc">Generate tokens for automated ACME clients, CI/CD pipelines, and microservice REST signing.</p>
+          </div>
+          <button onclick="createApiToken()">+ Generate New Token</button>
+        </div>
+
+        <div class="card">
+          <table>
+            <thead>
+              <tr>
+                <th>Token Name</th>
+                <th>API Key</th>
+                <th>Created</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="tokens-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TAB: OFFLINE ROOT CA GUIDE -->
+      <div id="tab-offline" class="tab-pane" style="display: none;">
+        <h1 class="section-title">Offline Root CA & Intermediate Signer Guide</h1>
+        <p class="section-desc">Strict Zero-Trust security: Keep your Root CA on an air-gapped machine or encrypted drive, and only import signed intermediates into this UI.</p>
+
+        <div class="card">
+          <h3 style="color: var(--cyan); margin-bottom: 0.5rem;">Step 1: Generate Root CA (Run on Offline Computer)</h3>
+          <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.75rem;">Generate 4096-bit RSA key and 20-year self-signed certificate:</p>
+          <pre><code>openssl genrsa -out root-ca.key.pem 4096
+openssl req -new -x509 -days 7300 -key root-ca.key.pem -out root-ca.cert.pem \
+  -subj "/C=IN/ST=Karnataka/L=Bengaluru/O=Rajlabs/CN=Rajlabs Root CA"</code></pre>
+          <p style="color: #f59e0b; font-size: 0.85rem; margin-top: 0.5rem;">⚠️ Store <code>root-ca.key.pem</code> in a secure vault or offline USB. NEVER import it into Docker!</p>
+        </div>
+
+        <div class="card">
+          <h3 style="color: var(--cyan); margin-bottom: 0.5rem;">Step 2: Generate Intermediate CA Signer Key & CSR</h3>
+          <pre><code>openssl genrsa -out int-server.key.pem 4096
+openssl req -new -sha256 -key int-server.key.pem -out int-server.csr.pem \
+  -subj "/C=IN/ST=Karnataka/L=Bengaluru/O=Rajlabs/CN=Rajlabs Server Intermediate CA"</code></pre>
+        </div>
+
+        <div class="card">
+          <h3 style="color: var(--cyan); margin-bottom: 0.5rem;">Step 3: Sign Intermediate with Root CA (Offline)</h3>
+          <pre><code># Create extension file: ext.cnf
+echo "basicConstraints = critical, CA:true, pathlen:0" > ext.cnf
+echo "keyUsage = critical, digitalSignature, cRLSign, keyCertSign" >> ext.cnf
+
+openssl x509 -req -in int-server.csr.pem -CA root-ca.cert.pem -CAkey root-ca.key.pem \
+  -CAcreateserial -out int-server.cert.pem -days 3650 -sha256 -extfile ext.cnf</code></pre>
+        </div>
+
+        <div class="card">
+          <h3 style="color: var(--cyan); margin-bottom: 0.5rem;">Step 4: Import into this Web UI</h3>
+          <p style="color: var(--text-muted); font-size: 0.9rem;">
+            Copy <code>int-server.cert.pem</code>, <code>int-server.key.pem</code>, and <code>root-ca.cert.pem</code>. Go to the <strong>Intermediate CAs</strong> tab above and click <strong>+ Import Intermediate CA</strong>. The private key will be stored securely using AES-256 encryption.
+          </p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    let authToken = localStorage.getItem('rajlabs_token') || '';
+
+    if (authToken) {
+      checkAuth();
+    }
+
+    async function handleLogin() {
+      const username = document.getElementById('login-user').value;
+      const password = document.getElementById('login-pass').value;
+      const errEl = document.getElementById('login-error');
+      errEl.style.display = 'none';
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (data.success) {
+          authToken = data.token;
+          localStorage.setItem('rajlabs_token', authToken);
+          showDashboard();
+        } else {
+          errEl.textContent = data.error || 'Login failed';
+          errEl.style.display = 'block';
+        }
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+      }
+    }
+
+    function logout() {
+      localStorage.removeItem('rajlabs_token');
+      location.reload();
+    }
+
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/admin/intermediate-cas', {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        if (res.ok) {
+          showDashboard();
+        } else {
+          logout();
+        }
+      } catch (e) {
+        logout();
+      }
+    }
+
+    function showDashboard() {
+      document.getElementById('login-view').style.display = 'none';
+      document.getElementById('dashboard-view').style.display = 'flex';
+      loadOverview();
+      loadCAs();
+      loadCerts();
+      loadTokens();
+    }
+
+    function showTab(tabId) {
+      document.querySelectorAll('.tab-pane').forEach(el => el.style.display = 'none');
+      document.querySelectorAll('nav a').forEach(el => el.classList.remove('active'));
+      document.getElementById(tabId).style.display = 'block';
+      event.target.classList.add('active');
+    }
+
+    async function loadOverview() {
+      const res = await fetch('/health');
+      const data = await res.json();
+      document.getElementById('stat-active-ca').textContent = data.activeCA || 'None';
+      const cRes = await fetch('/api/admin/certificates', { headers: { 'Authorization': `Bearer ${authToken}` } });
+      const certs = await cRes.json();
+      document.getElementById('stat-cert-count').textContent = certs.length || 0;
+    }
+
+    async function loadCAs() {
+      const res = await fetch('/api/admin/intermediate-cas', { headers: { 'Authorization': `Bearer ${authToken}` } });
+      const list = await res.json();
+      const tbody = document.getElementById('ca-table-body');
+      tbody.innerHTML = list.map(ca => `
+        <tr>
+          <td><strong>${ca.name}</strong></td>
+          <td style="color: var(--text-muted);">${ca.description || '-'}</td>
+          <td><span class="badge ${ca.hasKey ? 'badge-active' : ''}">Encrypted in DB</span></td>
+          <td>${ca.isActive ? '<span class="badge badge-active">Active Signer</span>' : '<span class="badge">Standby</span>'}</td>
+          <td>${ca.isActive ? '-' : `<button class="btn-outline" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="activateCA('${ca.id}')">Make Active</button>`}</td>
+        </tr>
+      `).join('');
+    }
+
+    async function activateCA(id) {
+      await fetch(`/api/admin/intermediate-cas/${id}/activate`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+      loadCAs();
+      loadOverview();
+    }
+
+    async function submitIntermediateCA() {
+      const payload = {
+        name: document.getElementById('ca-name').value,
+        description: document.getElementById('ca-desc').value,
+        setActive: document.getElementById('ca-set-active').checked,
+        rootCertPem: document.getElementById('ca-root-cert').value,
+        certPem: document.getElementById('ca-cert').value,
+        keyPem: document.getElementById('ca-key').value
+      };
+
+      const res = await fetch('/api/admin/intermediate-cas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        document.getElementById('import-ca-modal').style.display = 'none';
+        loadCAs();
+        loadOverview();
+      } else {
+        alert('Failed to save Intermediate CA.');
+      }
+    }
+
+    async function generateLeafCert() {
+      const commonName = document.getElementById('cert-cn').value;
+      const sans = document.getElementById('cert-sans').value;
+      const days = document.getElementById('cert-days').value;
+
+      const res = await fetch('/api/admin/generate-cert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+        body: JSON.stringify({ commonName, sans, days })
+      });
+      const data = await res.json();
+      if (data.success) {
+        document.getElementById('res-key').value = data.privateKey;
+        document.getElementById('res-chain').value = data.fullChain;
+        document.getElementById('issued-result-card').style.display = 'block';
+        loadCerts();
+        loadOverview();
+      } else {
+        alert(data.error);
+      }
+    }
+
+    async function loadCerts() {
+      const res = await fetch('/api/admin/certificates', { headers: { 'Authorization': `Bearer ${authToken}` } });
+      const certs = await res.json();
+      const tbody = document.getElementById('cert-table-body');
+      tbody.innerHTML = certs.map(c => `
+        <tr>
+          <td><code>0x${c.serial}</code></td>
+          <td>${c.caName}</td>
+          <td>${(c.sanDomains || []).join(', ')}</td>
+          <td style="color: var(--text-muted);">${new Date(c.issuedAt).toLocaleString()}</td>
+          <td><span class="badge badge-active">${c.status}</span></td>
+        </tr>
+      `).join('');
+    }
+
+    async function loadTokens() {
+      const res = await fetch('/api/admin/tokens', { headers: { 'Authorization': `Bearer ${authToken}` } });
+      const tokens = await res.json();
+      const tbody = document.getElementById('tokens-table-body');
+      tbody.innerHTML = tokens.map(t => `
+        <tr>
+          <td><strong>${t.name}</strong></td>
+          <td><code>${t.token}</code></td>
+          <td style="color: var(--text-muted);">${new Date(t.createdAt).toLocaleDateString()}</td>
+          <td><button class="btn-danger" style="padding: 0.3rem 0.6rem; font-size: 0.8rem;" onclick="deleteToken('${t.id}')">Revoke</button></td>
+        </tr>
+      `).join('');
+    }
+
+    async function createApiToken() {
+      const name = prompt('Enter a name for this API token (e.g. Ingress Certbot, Traefik, CI/CD):');
+      if (!name) return;
+      await fetch('/api/admin/tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+        body: JSON.stringify({ name })
+      });
+      loadTokens();
+    }
+
+    async function deleteToken(id) {
+      if (!confirm('Are you sure you want to revoke this API token?')) return;
+      await fetch(`/api/admin/tokens/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+      loadTokens();
+    }
+  </script>
+</body>
+</html>

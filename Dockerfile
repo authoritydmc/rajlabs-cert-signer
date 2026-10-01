@@ -20,6 +20,7 @@ RUN npm ci --only=production || npm install --production
 
 # Copy application source
 COPY signer-engine/server.js ./
+COPY signer-engine/public ./public
 
 # Set environment defaults
 ENV NODE_ENV=production

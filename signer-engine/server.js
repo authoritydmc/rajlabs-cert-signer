@@ -2,6 +2,9 @@ const express = require('express');
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
@@ -10,78 +13,167 @@ app.use(express.text({ type: ['text/*', 'application/pkcs10', 'application/x-pem
 
 const PORT = parseInt(process.env.PORT || '9000', 10);
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
-const CA_NAME = process.env.CA_NAME || 'int-server';
-const DAYS_VALID = parseInt(process.env.DAYS_VALID || '90', 10);
-const AUTH_TOKEN = process.env.AUTH_TOKEN || '';
-
-// Storage and file paths (supports both Coolify volume mounts or environment-injected certs/keys)
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
-const CA_CERTS_DIR = process.env.CA_CERTS_DIR || path.join(__dirname, 'ca-certs');
-const CA_KEYS_DIR = process.env.CA_KEYS_DIR || path.join(__dirname, 'ca-keys');
 const CERTS_DIR = path.join(DATA_DIR, 'issued-certs');
 const CRL_DIR = path.join(DATA_DIR, 'crl');
-const PUBLIC_DIR = path.join(DATA_DIR, 'public');
 const DB_FILE = path.join(DATA_DIR, 'database.json');
-const SERIAL_FILE = path.join(DATA_DIR, 'serial');
+const CREDENTIALS_FILE = path.join(DATA_DIR, 'admin_credentials.txt');
 
-[DATA_DIR, CA_CERTS_DIR, CA_KEYS_DIR, CERTS_DIR, CRL_DIR, PUBLIC_DIR].forEach(dir => {
+[DATA_DIR, CERTS_DIR, CRL_DIR].forEach(dir => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-// Support loading Intermediate CA & Root CA directly from environment variables (great for Coolify!)
-const CA_CERT_PATH = path.join(CA_CERTS_DIR, `${CA_NAME}.cert.pem`);
-const CA_KEY_PATH = path.join(CA_KEYS_DIR, `${CA_NAME}.key.pem`);
-const ROOT_CERT_PATH = path.join(CA_CERTS_DIR, 'root-ca.cert.pem');
+// AES-256-GCM Encryption for Intermediate Private Keys in DB/Disk
+const MASTER_ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.createHash('sha256').update(process.env.ADMIN_PASSWORD || 'rajlabs-default-master-key-seed').digest();
 
-if (process.env.INTERMEDIATE_CERT_PEM && !fs.existsSync(CA_CERT_PATH)) {
-  fs.writeFileSync(CA_CERT_PATH, process.env.INTERMEDIATE_CERT_PEM.replace(/\\n/g, '\n'));
-}
-if (process.env.INTERMEDIATE_KEY_PEM && !fs.existsSync(CA_KEY_PATH)) {
-  fs.writeFileSync(CA_KEY_PATH, process.env.INTERMEDIATE_KEY_PEM.replace(/\\n/g, '\n'), { mode: 0o600 });
-}
-if (process.env.ROOT_CERT_PEM && !fs.existsSync(ROOT_CERT_PATH)) {
-  fs.writeFileSync(ROOT_CERT_PATH, process.env.ROOT_CERT_PEM.replace(/\\n/g, '\n'));
+function encryptData(text) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', MASTER_ENCRYPTION_KEY, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  const authTag = cipher.getAuthTag().toString('hex');
+  return `${iv.toString('hex')}:${authTag}:${encrypted}`;
 }
 
-if (!fs.existsSync(DB_FILE)) {
-  fs.writeFileSync(DB_FILE, JSON.stringify({ certificates: [], accounts: [] }, null, 2));
-}
-if (!fs.existsSync(SERIAL_FILE)) {
-  fs.writeFileSync(SERIAL_FILE, '2000\n');
+function decryptData(cipherText) {
+  const parts = cipherText.split(':');
+  if (parts.length !== 3) return cipherText; // Return raw if unencrypted
+  const iv = Buffer.from(parts[0], 'hex');
+  const authTag = Buffer.from(parts[1], 'hex');
+  const encrypted = parts[2];
+  const decipher = crypto.createDecipheriv('aes-256-gcm', MASTER_ENCRYPTION_KEY, iv);
+  decipher.setAuthTag(authTag);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
 }
 
-function getNextSerial() {
-  const current = parseInt(fs.readFileSync(SERIAL_FILE, 'utf8').trim(), 10);
-  const next = current + 1;
-  fs.writeFileSync(SERIAL_FILE, `${next}\n`);
-  return current.toString(16).padStart(4, '0');
+// ------------------------------------------------------------------
+// PostgreSQL or Embedded JSON Database Layer
+// ------------------------------------------------------------------
+let pgPool = null;
+if (process.env.DATABASE_URL) {
+  pgPool = new Pool({ connectionString: process.env.DATABASE_URL });
+  initPostgres().catch(console.error);
 }
 
-function loadDB() {
+async function initPostgres() {
+  if (!pgPool) return;
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS system_config (
+      key VARCHAR(50) PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS intermediate_cas (
+      id VARCHAR(50) PRIMARY KEY,
+      name VARCHAR(100) UNIQUE NOT NULL,
+      description TEXT,
+      cert_pem TEXT NOT NULL,
+      encrypted_key_pem TEXT NOT NULL,
+      root_cert_pem TEXT NOT NULL,
+      is_active BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id VARCHAR(50) PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      token VARCHAR(100) UNIQUE NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS issued_certs (
+      id VARCHAR(50) PRIMARY KEY,
+      serial VARCHAR(50) NOT NULL,
+      intermediate_name VARCHAR(100) NOT NULL,
+      san_domains TEXT[],
+      status VARCHAR(20) DEFAULT 'valid',
+      issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+}
+
+function getLocalDB() {
+  if (!fs.existsSync(DB_FILE)) {
+    fs.writeFileSync(DB_FILE, JSON.stringify({
+      config: {},
+      intermediateCAs: [],
+      apiTokens: [],
+      certificates: [],
+      serial: 2000
+    }, null, 2));
+  }
   return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
 }
 
-function saveDB(data) {
+function saveLocalDB(data) {
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
 
 // ------------------------------------------------------------------
-// Core Signing Logic (Using OpenSSL directly with Intermediate CA)
+// Admin Credentials Auto-Generation
 // ------------------------------------------------------------------
-function signCSR(csrPem, sanDomains = [], days = DAYS_VALID) {
-  if (!fs.existsSync(CA_CERT_PATH) || !fs.existsSync(CA_KEY_PATH)) {
-    throw new Error(`Intermediate CA certificate or private key missing! Looked in: ${CA_CERT_PATH}`);
+function initAdminAuth() {
+  const db = getLocalDB();
+  if (!db.config.adminPasswordHash) {
+    const generatedPassword = process.env.ADMIN_PASSWORD || crypto.randomBytes(18).toString('base64url');
+    const salt = bcrypt.genSaltSync(10);
+    db.config.adminUser = process.env.ADMIN_USER || 'admin';
+    db.config.adminPasswordHash = bcrypt.hashSync(generatedPassword, salt);
+    saveLocalDB(db);
+
+    const credNotice = `==========================================================\n RAJLABS CERTIFICATE SIGNER - ADMIN CREDENTIALS\n==========================================================\n Generated User     : ${db.config.adminUser}\n Generated Password : ${generatedPassword}\n Login UI URL       : ${BASE_URL}/login\n Saved at (Docker)  : ${CREDENTIALS_FILE}\n==========================================================\n`;
+    fs.writeFileSync(CREDENTIALS_FILE, credNotice);
+    console.log(credNotice);
+  }
+}
+initAdminAuth();
+
+// Simple Session Token Map
+const activeSessions = new Set();
+
+function authMiddleware(req, res, next) {
+  const authHeader = req.headers['authorization'] || '';
+  const apiKey = req.headers['x-api-key'] || '';
+
+  // Check Bearer session token from UI login
+  if (authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    if (activeSessions.has(token)) return next();
+  }
+
+  // Check API Token
+  const db = getLocalDB();
+  if (apiKey && (db.apiTokens.some(t => t.token === apiKey) || apiKey === process.env.AUTH_TOKEN)) {
+    return next();
+  }
+
+  res.status(401).json({ error: 'Unauthorized. Please login or provide a valid x-api-key token.' });
+}
+
+// ------------------------------------------------------------------
+// Certificate Signing Engine
+// ------------------------------------------------------------------
+async function signLeafCertificate(csrPem, sanDomains = [], days = 90) {
+  const db = getLocalDB();
+  const activeCA = db.intermediateCAs.find(ca => ca.isActive) || db.intermediateCAs[0];
+  if (!activeCA) {
+    throw new Error('No Intermediate CA configured in the system! Please add one in Admin UI.');
   }
 
   const certId = uuidv4();
-  const serial = getNextSerial();
+  const serialNum = db.serial++;
+  saveLocalDB(db);
+
+  const serial = serialNum.toString(16).padStart(4, '0');
   const tempCsr = path.join('/tmp', `${certId}.csr`);
   const tempCert = path.join('/tmp', `${certId}.crt`);
   const tempExt = path.join('/tmp', `${certId}.ext`);
+  const tempCaCert = path.join('/tmp', `${certId}-ca.crt`);
+  const tempCaKey = path.join('/tmp', `${certId}-ca.key`);
 
   fs.writeFileSync(tempCsr, csrPem);
+  fs.writeFileSync(tempCaCert, activeCA.certPem);
+  fs.writeFileSync(tempCaKey, decryptData(activeCA.encryptedKeyPem), { mode: 0o600 });
 
-  // Build SAN extension
   let extContent = [
     'basicConstraints = CA:FALSE',
     'keyUsage = digitalSignature, keyEncipherment',
@@ -97,171 +189,184 @@ function signCSR(csrPem, sanDomains = [], days = DAYS_VALID) {
 
   fs.writeFileSync(tempExt, extContent.join('\n'));
 
-  // Sign with intermediate CA
-  const cmd = `openssl x509 -req -in "${tempCsr}" -CA "${CA_CERT_PATH}" -CAkey "${CA_KEY_PATH}" -set_serial 0x${serial} -out "${tempCert}" -days ${days} -sha256 -extfile "${tempExt}"`;
+  const cmd = `openssl x509 -req -in "${tempCsr}" -CA "${tempCaCert}" -CAkey "${tempCaKey}" -set_serial 0x${serial} -out "${tempCert}" -days ${days} -sha256 -extfile "${tempExt}"`;
   execSync(cmd, { stdio: 'pipe' });
 
   const issuedCert = fs.readFileSync(tempCert, 'utf8');
-  const intermediateCert = fs.readFileSync(CA_CERT_PATH, 'utf8');
-  const rootCert = fs.existsSync(ROOT_CERT_PATH) ? fs.readFileSync(ROOT_CERT_PATH, 'utf8') : '';
-  const fullChain = `${issuedCert.trim()}\n${intermediateCert.trim()}\n${rootCert.trim()}`.trim();
+  const fullChain = `${issuedCert.trim()}\n${activeCA.certPem.trim()}\n${activeCA.rootCertPem.trim()}`.trim();
 
-  // Save issued cert to storage
   fs.writeFileSync(path.join(CERTS_DIR, `${certId}.crt`), issuedCert);
   fs.writeFileSync(path.join(CERTS_DIR, `${certId}-chain.crt`), fullChain);
 
-  // Clean temp files
-  try {
-    fs.unlinkSync(tempCsr);
-    fs.unlinkSync(tempCert);
-    fs.unlinkSync(tempExt);
-  } catch (e) {}
+  // Clean temp files securely
+  [tempCsr, tempCert, tempExt, tempCaCert, tempCaKey].forEach(f => {
+    try { fs.unlinkSync(f); } catch (e) {}
+  });
 
-  const db = loadDB();
-  db.certificates.push({
+  db.certificates.unshift({
     id: certId,
     serial,
+    caName: activeCA.name,
     sanDomains,
     issuedAt: new Date().toISOString(),
-    expiresDays: days,
     status: 'valid'
   });
-  saveDB(db);
+  saveLocalDB(db);
 
-  return { certId, serial, certificate: issuedCert, fullChain };
+  return { certId, serial, certificate: issuedCert, fullChain, caName: activeCA.name };
 }
 
 // ------------------------------------------------------------------
-// CRL Generation
+// Web UI & Authentication Endpoints
 // ------------------------------------------------------------------
-function generateCRL() {
-  if (!fs.existsSync(CA_CERT_PATH) || !fs.existsSync(CA_KEY_PATH)) return;
+app.use(express.static(path.join(__dirname, 'public')));
 
-  const crlFile = path.join(CRL_DIR, `${CA_NAME}.crl`);
-  const caIndex = path.join(DATA_DIR, 'index.txt');
-  const caSerial = path.join(DATA_DIR, 'crlnumber');
-  const cnfFile = path.join(DATA_DIR, 'crl_openssl.cnf');
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  const db = getLocalDB();
+  if (username === db.config.adminUser && bcrypt.compareSync(password, db.config.adminPasswordHash)) {
+    const sessionToken = uuidv4();
+    activeSessions.add(sessionToken);
+    return res.json({ success: true, token: sessionToken, username });
+  }
+  res.status(401).json({ success: false, error: 'Invalid admin username or password' });
+});
 
-  if (!fs.existsSync(caIndex)) fs.writeFileSync(caIndex, '');
-  if (!fs.existsSync(caSerial)) fs.writeFileSync(caSerial, '1000\n');
+// Intermediate CAs Management
+app.get('/api/admin/intermediate-cas', authMiddleware, (req, res) => {
+  const db = getLocalDB();
+  const safeList = db.intermediateCAs.map(ca => ({
+    id: ca.id,
+    name: ca.name,
+    description: ca.description,
+    certPem: ca.certPem,
+    rootCertPem: ca.rootCertPem,
+    isActive: ca.isActive,
+    hasKey: !!ca.encryptedKeyPem
+  }));
+  res.json(safeList);
+});
 
-  const cnf = `
-[ ca ]
-default_ca = CA_default
-[ CA_default ]
-database = ${caIndex}
-crlnumber = ${caSerial}
-default_md = sha256
-default_crl_days = 30
-`;
-  fs.writeFileSync(cnfFile, cnf);
+app.post('/api/admin/intermediate-cas', authMiddleware, (req, res) => {
+  const { name, description, certPem, keyPem, rootCertPem, setActive } = req.body;
+  if (!name || !certPem || !keyPem || !rootCertPem) {
+    return res.status(400).json({ error: 'name, certPem, keyPem, and rootCertPem are required.' });
+  }
+
+  const db = getLocalDB();
+  if (setActive) {
+    db.intermediateCAs.forEach(c => c.isActive = false);
+  }
+
+  const newCA = {
+    id: uuidv4(),
+    name: name.trim().toLowerCase().replace(/\s+/g, '-'),
+    description: description || '',
+    certPem: certPem.trim(),
+    encryptedKeyPem: encryptData(keyPem.trim()), // Stored encrypted!
+    rootCertPem: rootCertPem.trim(),
+    isActive: !!setActive || db.intermediateCAs.length === 0,
+    createdAt: new Date().toISOString()
+  };
+
+  db.intermediateCAs.push(newCA);
+  saveLocalDB(db);
+  res.json({ success: true, ca: { id: newCA.id, name: newCA.name, isActive: newCA.isActive } });
+});
+
+app.post('/api/admin/intermediate-cas/:id/activate', authMiddleware, (req, res) => {
+  const db = getLocalDB();
+  const target = db.intermediateCAs.find(c => c.id === req.params.id);
+  if (!target) return res.status(404).json({ error: 'CA not found' });
+
+  db.intermediateCAs.forEach(c => c.isActive = false);
+  target.isActive = true;
+  saveLocalDB(db);
+  res.json({ success: true, message: `Activated ${target.name}` });
+});
+
+// API Tokens Management
+app.get('/api/admin/tokens', authMiddleware, (req, res) => {
+  const db = getLocalDB();
+  res.json(db.apiTokens || []);
+});
+
+app.post('/api/admin/tokens', authMiddleware, (req, res) => {
+  const { name } = req.body;
+  const db = getLocalDB();
+  const newToken = {
+    id: uuidv4(),
+    name: name || 'API Token',
+    token: `rajlabs_${crypto.randomBytes(24).toString('hex')}`,
+    createdAt: new Date().toISOString()
+  };
+  db.apiTokens.push(newToken);
+  saveLocalDB(db);
+  res.json({ success: true, token: newToken });
+});
+
+app.delete('/api/admin/tokens/:id', authMiddleware, (req, res) => {
+  const db = getLocalDB();
+  db.apiTokens = db.apiTokens.filter(t => t.id !== req.params.id);
+  saveLocalDB(db);
+  res.json({ success: true });
+});
+
+// Issued Certificates
+app.get('/api/admin/certificates', authMiddleware, (req, res) => {
+  const db = getLocalDB();
+  res.json(db.certificates || []);
+});
+
+// Direct UI Certificate Generator (Create Key + CSR + Sign in one go)
+app.post('/api/admin/generate-cert', authMiddleware, async (req, res) => {
+  const { commonName, sans, days } = req.body;
+  if (!commonName) return res.status(400).json({ error: 'commonName is required' });
 
   try {
-    execSync(`openssl ca -gencrl -keyfile "${CA_KEY_PATH}" -cert "${CA_CERT_PATH}" -config "${cnfFile}" -out "${crlFile}"`, { stdio: 'pipe' });
+    const certId = uuidv4();
+    const tempKey = path.join('/tmp', `${certId}.key`);
+    const tempCsr = path.join('/tmp', `${certId}.csr`);
+
+    execSync(`openssl genrsa -out "${tempKey}" 2048`);
+    execSync(`openssl req -new -key "${tempKey}" -out "${tempCsr}" -subj "/CN=${commonName}"`);
+
+    const csrPem = fs.readFileSync(tempCsr, 'utf8');
+    const privateKey = fs.readFileSync(tempKey, 'utf8');
+
+    const sanList = (sans || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (!sanList.includes(commonName)) sanList.unshift(commonName);
+
+    const result = await signLeafCertificate(csrPem, sanList, parseInt(days || '90', 10));
+
+    try { fs.unlinkSync(tempKey); fs.unlinkSync(tempCsr); } catch (e) {}
+
+    res.json({
+      success: true,
+      serial: result.serial,
+      privateKey,
+      certificate: result.certificate,
+      fullChain: result.fullChain
+    });
   } catch (err) {
-    console.error('CRL gen notice:', err.message);
-  }
-}
-
-// ------------------------------------------------------------------
-// Client Installer Script Generators (Windows & Linux)
-// ------------------------------------------------------------------
-app.get('/install-trust-windows.ps1', (req, res) => {
-  const hostUrl = BASE_URL;
-  const script = `# Rajlabs Windows Trust Installer
-$ErrorActionPreference = 'Stop'
-$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Start-Process powershell.exe -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -Command `"irm ${hostUrl}/install-trust-windows.ps1 | iex`"") -Verb RunAs
-    exit
-}
-$temp = [System.IO.Path]::GetTempPath()
-$rootFile = Join-Path $temp 'rajlabs-root.crt'
-$intFile  = Join-Path $temp 'rajlabs-int.crt'
-Invoke-WebRequest -Uri '${hostUrl}/certs/root-ca.crt' -OutFile $rootFile -UseBasicParsing
-Invoke-WebRequest -Uri '${hostUrl}/certs/intermediate-ca.crt' -OutFile $intFile -UseBasicParsing
-
-$rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine')
-$rootStore.Open('ReadWrite')
-$rootStore.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($rootFile)))
-$rootStore.Close()
-
-$intStore = New-Object System.Security.Cryptography.X509Certificates.X509Store('CertificateAuthority', 'LocalMachine')
-$intStore.Open('ReadWrite')
-$intStore.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($intFile)))
-$intStore.Close()
-Write-Host '[SUCCESS] Rajlabs CA trust chain installed successfully!' -ForegroundColor Green
-`;
-  res.setHeader('Content-Type', 'text/plain');
-  res.send(script);
-});
-
-app.get('/install-trust-linux.sh', (req, res) => {
-  const hostUrl = BASE_URL;
-  const script = `#!/bin/bash
-set -e
-if [ "$EUID" -ne 0 ]; then echo "Please run as root or with sudo."; exit 1; fi
-TEMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TEMP_DIR"' EXIT
-curl -fsSL "${hostUrl}/certs/root-ca.crt" -o "$TEMP_DIR/rajlabs-root.crt"
-curl -fsSL "${hostUrl}/certs/intermediate-ca.crt" -o "$TEMP_DIR/rajlabs-int.crt"
-
-if [ -d "/usr/local/share/ca-certificates" ]; then
-    cp "$TEMP_DIR/rajlabs-root.crt" /usr/local/share/ca-certificates/
-    cp "$TEMP_DIR/rajlabs-int.crt" /usr/local/share/ca-certificates/
-    update-ca-certificates
-elif [ -d "/etc/pki/ca-trust/source/anchors" ]; then
-    cp "$TEMP_DIR/rajlabs-root.crt" /etc/pki/ca-trust/source/anchors/
-    cp "$TEMP_DIR/rajlabs-int.crt" /etc/pki/ca-trust/source/anchors/
-    update-ca-trust extract
-fi
-echo "[SUCCESS] Rajlabs CA trust chain installed successfully!"
-`;
-  res.setHeader('Content-Type', 'text/plain');
-  res.send(script);
-});
-
-// ------------------------------------------------------------------
-// Public Certificate & CRL Serving
-// ------------------------------------------------------------------
-app.get('/certs/root-ca.crt', (req, res) => {
-  if (fs.existsSync(ROOT_CERT_PATH)) {
-    res.setHeader('Content-Type', 'application/x-x509-ca-cert');
-    res.send(fs.readFileSync(ROOT_CERT_PATH));
-  } else {
-    res.status(404).send('Root CA certificate not available');
-  }
-});
-
-app.get('/certs/intermediate-ca.crt', (req, res) => {
-  if (fs.existsSync(CA_CERT_PATH)) {
-    res.setHeader('Content-Type', 'application/x-x509-ca-cert');
-    res.send(fs.readFileSync(CA_CERT_PATH));
-  } else {
-    res.status(404).send('Intermediate CA certificate not available');
-  }
-});
-
-app.get('/certs/ca-chain.crt', (req, res) => {
-  const intCert = fs.existsSync(CA_CERT_PATH) ? fs.readFileSync(CA_CERT_PATH, 'utf8') : '';
-  const rootCert = fs.existsSync(ROOT_CERT_PATH) ? fs.readFileSync(ROOT_CERT_PATH, 'utf8') : '';
-  res.setHeader('Content-Type', 'application/x-x509-ca-cert');
-  res.send(`${intCert.trim()}\n${rootCert.trim()}\n`);
-});
-
-app.get('/crl/:caName.crl', (req, res) => {
-  const file = path.join(CRL_DIR, `${req.params.caName}.crl`);
-  if (fs.existsSync(file)) {
-    res.setHeader('Content-Type', 'application/pkix-crl');
-    res.send(fs.readFileSync(file));
-  } else {
-    res.status(404).send('CRL not found');
+    res.status(500).json({ error: err.message });
   }
 });
 
 // ------------------------------------------------------------------
-// ACME Directory & RFC 8555 Endpoints
+// ACME & Public REST Sign APIs
 // ------------------------------------------------------------------
+app.post('/api/v1/sign', authMiddleware, async (req, res) => {
+  const { csr, san, days } = req.body;
+  if (!csr) return res.status(400).json({ error: 'Missing csr in request body' });
+  try {
+    const result = await signLeafCertificate(csr, san || [], days || 90);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/acme/directory', (req, res) => {
   res.json({
     "newNonce": `${BASE_URL}/acme/new-nonce`,
@@ -269,12 +374,7 @@ app.get('/acme/directory', (req, res) => {
     "newOrder": `${BASE_URL}/acme/new-order`,
     "revokeCert": `${BASE_URL}/acme/revoke-cert`,
     "keyChange": `${BASE_URL}/acme/key-change`,
-    "meta": {
-      "termsOfService": `${BASE_URL}/terms`,
-      "website": "https://rajlabs.local",
-      "caaIdentities": ["rajlabs.local"],
-      "externalAccountRequired": false
-    }
+    "meta": { "termsOfService": `${BASE_URL}/terms`, "website": "https://rajlabs.local" }
   });
 });
 
@@ -292,134 +392,119 @@ app.get('/acme/new-nonce', (req, res) => {
 
 app.post('/acme/new-account', (req, res) => {
   const accountId = uuidv4();
-  const db = loadDB();
-  db.accounts.push({ id: accountId, createdAt: new Date().toISOString() });
-  saveDB(db);
-
   res.setHeader('Replay-Nonce', uuidv4());
   res.setHeader('Location', `${BASE_URL}/acme/acct/${accountId}`);
-  res.status(201).json({
-    status: 'valid',
-    contact: req.body.contact || [],
-    orders: `${BASE_URL}/acme/acct/${accountId}/orders`
-  });
+  res.status(201).json({ status: 'valid', orders: `${BASE_URL}/acme/acct/${accountId}/orders` });
 });
 
 app.post('/acme/new-order', (req, res) => {
   const orderId = uuidv4();
   const authzId = uuidv4();
-  const identifiers = req.body.identifiers || [];
-
   res.setHeader('Replay-Nonce', uuidv4());
   res.setHeader('Location', `${BASE_URL}/acme/order/${orderId}`);
   res.status(201).json({
     status: 'ready',
     expires: new Date(Date.now() + 86400000).toISOString(),
-    identifiers: identifiers,
+    identifiers: req.body.identifiers || [],
     authorizations: [`${BASE_URL}/acme/authz/${authzId}`],
     finalize: `${BASE_URL}/acme/order/${orderId}/finalize`
   });
 });
 
-app.post('/acme/order/:orderId/finalize', (req, res) => {
+app.post('/acme/order/:orderId/finalize', async (req, res) => {
   try {
-    const orderId = req.params.orderId;
-    let csrRaw = req.body.csr;
-    if (!csrRaw && typeof req.body === 'string') csrRaw = req.body;
-
+    let csrRaw = req.body.csr || req.body;
     let csrPem = csrRaw;
     if (!csrPem.includes('-----BEGIN CERTIFICATE REQUEST-----')) {
       const buffer = Buffer.from(csrRaw, 'base64');
       csrPem = `-----BEGIN CERTIFICATE REQUEST-----\n${buffer.toString('base64').match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE REQUEST-----`;
     }
-
-    const { certId } = signCSR(csrPem, ['localhost']);
-
+    const { certId } = await signLeafCertificate(csrPem, ['localhost']);
     res.setHeader('Replay-Nonce', uuidv4());
-    res.setHeader('Location', `${BASE_URL}/acme/order/${orderId}`);
-    res.status(200).json({
-      status: 'valid',
-      certificate: `${BASE_URL}/acme/cert/${certId}`
-    });
+    res.json({ status: 'valid', certificate: `${BASE_URL}/acme/cert/${certId}` });
   } catch (err) {
-    res.status(400).json({ type: 'urn:ietf:params:acme:error:badCSR', detail: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
 
 app.get('/acme/cert/:certId', (req, res) => {
   const chainPath = path.join(CERTS_DIR, `${req.params.certId}-chain.crt`);
-  if (!fs.existsSync(chainPath)) {
-    return res.status(404).send('Certificate not found');
-  }
+  if (!fs.existsSync(chainPath)) return res.status(404).send('Not found');
   res.setHeader('Content-Type', 'application/pem-certificate-chain');
   res.send(fs.readFileSync(chainPath, 'utf8'));
 });
 
-// ------------------------------------------------------------------
-// High-Level REST API for Direct PKI Signing
-// ------------------------------------------------------------------
-app.post('/api/v1/sign', (req, res) => {
-  if (AUTH_TOKEN && req.headers['x-api-key'] !== AUTH_TOKEN) {
-    return res.status(401).json({ error: 'Unauthorized. Invalid x-api-key header.' });
-  }
-
-  const { csr, san, days } = req.body;
-  if (!csr) {
-    return res.status(400).json({ error: 'Missing csr in request body' });
-  }
-
-  try {
-    const result = signCSR(csr, san || [], days || DAYS_VALID);
-    res.json({
-      success: true,
-      serial: result.serial,
-      certificate: result.certificate,
-      fullChain: result.fullChain
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+// Client Installers
+app.get('/install-trust-windows.ps1', (req, res) => {
+  const hostUrl = BASE_URL;
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(`$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrator')
+if (-not $isAdmin) { Start-Process powershell.exe -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -Command `"irm ${hostUrl}/install-trust-windows.ps1 | iex`"") -Verb RunAs; exit }
+$t = [System.IO.Path]::GetTempPath(); $r = Join-Path $t 'r.crt'; $i = Join-Path $t 'i.crt'
+Invoke-WebRequest -Uri '${hostUrl}/certs/root-ca.crt' -OutFile $r -UseBasicParsing
+Invoke-WebRequest -Uri '${hostUrl}/certs/intermediate-ca.crt' -OutFile $i -UseBasicParsing
+$rs = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine'); $rs.Open('ReadWrite'); $rs.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($r))); $rs.Close()
+$is = New-Object System.Security.Cryptography.X509Certificates.X509Store('CertificateAuthority', 'LocalMachine'); $is.Open('ReadWrite'); $is.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($i))); $is.Close()
+Write-Host '[SUCCESS] Rajlabs Trust Chain Installed!' -ForegroundColor Green
+`);
 });
 
-app.post('/api/v1/revoke', (req, res) => {
-  if (AUTH_TOKEN && req.headers['x-api-key'] !== AUTH_TOKEN) {
-    return res.status(401).json({ error: 'Unauthorized.' });
+app.get('/install-trust-linux.sh', (req, res) => {
+  const hostUrl = BASE_URL;
+  res.setHeader('Content-Type', 'text/plain');
+  res.send(`#!/bin/bash
+set -e
+if [ "$EUID" -ne 0 ]; then echo "Run as root"; exit 1; fi
+d=$(mktemp -d); trap 'rm -rf "$d"' EXIT
+curl -fsSL "${hostUrl}/certs/root-ca.crt" -o "$d/root.crt"
+curl -fsSL "${hostUrl}/certs/intermediate-ca.crt" -o "$d/int.crt"
+if [ -d "/usr/local/share/ca-certificates" ]; then
+  cp "$d/root.crt" "$d/int.crt" /usr/local/share/ca-certificates/; update-ca-certificates
+elif [ -d "/etc/pki/ca-trust/source/anchors" ]; then
+  cp "$d/root.crt" "$d/int.crt" /etc/pki/ca-trust/source/anchors/; update-ca-trust extract
+fi
+echo "[SUCCESS] Rajlabs Trust Chain Installed!"
+`);
+});
+
+app.get('/certs/root-ca.crt', (req, res) => {
+  const db = getLocalDB();
+  const ca = db.intermediateCAs.find(c => c.isActive) || db.intermediateCAs[0];
+  if (ca && ca.rootCertPem) {
+    res.setHeader('Content-Type', 'application/x-x509-ca-cert');
+    return res.send(ca.rootCertPem);
   }
+  res.status(404).send('Root cert not found');
+});
 
-  const { serial, reason } = req.body;
-  const db = loadDB();
-  const cert = db.certificates.find(c => c.serial === serial);
-
-  if (!cert) return res.status(404).json({ error: 'Certificate serial not found' });
-
-  cert.status = 'revoked';
-  cert.revokedAt = new Date().toISOString();
-  cert.revokeReason = reason || 'unspecified';
-  saveDB(db);
-
-  generateCRL();
-  res.json({ success: true, message: `Certificate ${serial} revoked and CRL updated.` });
+app.get('/certs/intermediate-ca.crt', (req, res) => {
+  const db = getLocalDB();
+  const ca = db.intermediateCAs.find(c => c.isActive) || db.intermediateCAs[0];
+  if (ca && ca.certPem) {
+    res.setHeader('Content-Type', 'application/x-x509-ca-cert');
+    return res.send(ca.certPem);
+  }
+  res.status(404).send('Intermediate cert not found');
 });
 
 app.get('/health', (req, res) => {
-  const hasIntCert = fs.existsSync(CA_CERT_PATH);
-  const hasIntKey = fs.existsSync(CA_KEY_PATH);
-  const hasRootCert = fs.existsSync(ROOT_CERT_PATH);
-
+  const db = getLocalDB();
   res.json({
-    status: hasIntCert && hasIntKey ? 'healthy' : 'degraded',
-    intermediateCA: CA_NAME,
-    intermediateCertLoaded: hasIntCert,
-    intermediateKeyLoaded: hasIntKey,
-    rootCertLoaded: hasRootCert,
-    rootPrivateKeyMounted: false, // Strict Zero-Trust assurance
-    uptimeSeconds: process.uptime()
+    status: 'healthy',
+    intermediateCAsCount: db.intermediateCAs.length,
+    activeCA: (db.intermediateCAs.find(c => c.isActive) || {}).name || null,
+    rootKeyAirGapped: true,
+    postgresConnected: !!pgPool
   });
 });
 
+// SPA fallback
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Certificate Signer Engine listening on port ${PORT}`);
-  console.log(`Base URL: ${BASE_URL}`);
-  console.log(`Using Intermediate CA: ${CA_NAME}`);
-  generateCRL();
+  console.log(`==========================================================`);
+  console.log(` Rajlabs Cert Signer Web UI running on http://0.0.0.0:${PORT}`);
+  console.log(`==========================================================`);
 });

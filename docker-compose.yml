@@ -1,4 +1,7 @@
 services:
+  # -------------------------------------------------------------------
+  # 1. Rajlabs PKI Cert Signer (Web UI, ACME, REST API)
+  # -------------------------------------------------------------------
   cert-signer:
     build:
       context: .
@@ -10,20 +13,41 @@ services:
     environment:
       - PORT=9000
       - BASE_URL=${BASE_URL:-http://localhost:9000}
-      - CA_NAME=${CA_NAME:-int-server}
-      - DAYS_VALID=${DAYS_VALID:-90}
-      - AUTH_TOKEN=${AUTH_TOKEN:-rajlabs-secure-api-key-9988}
-      # In Coolify, you can also paste these directly as environment variables:
-      - INTERMEDIATE_CERT_PEM=${INTERMEDIATE_CERT_PEM:-}
-      - INTERMEDIATE_KEY_PEM=${INTERMEDIATE_KEY_PEM:-}
-      - ROOT_CERT_PEM=${ROOT_CERT_PEM:-}
+      - ADMIN_USER=${ADMIN_USER:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-} # Leave blank to auto-generate strong password
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-} # Master key for DB-stored intermediate keys
+      - DATABASE_URL=${DATABASE_URL:-}    # Optional: postgres://user:pass@postgres:5432/rajlabs_pki
     volumes:
-      # Persistent database, serial numbers, CRLs, and issued certificates
+      # Data directory holding database, issued certs, serials, and admin_credentials.txt
       - cert_signer_data:/app/data
-      # Optional host mounts (if not using env variables)
-      - ./mounted-ca/certs:/app/ca-certs:ro
-      - ./mounted-ca/private:/app/ca-keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+
+  # -------------------------------------------------------------------
+  # 2. PostgreSQL Database (Optional - Enabled if DATABASE_URL is set)
+  # -------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: rajlabs-pki-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rajlabs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rajlabs_secure_db_pass_9988!}
+      POSTGRES_DB: ${POSTGRES_DB:-rajlabs_pki}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rajlabs}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - with-db
 
 volumes:
   cert_signer_data:
+    driver: local
+  postgres_data:
     driver: local
