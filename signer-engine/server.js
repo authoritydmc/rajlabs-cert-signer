@@ -491,6 +491,72 @@ app.post('/api/v1/sign', authMiddleware, async (req, res) => {
   }
 });
 
+// Certificate & CSR Inspector Endpoint
+app.post('/api/admin/parse-cert', (req, res) => {
+  let { content, type } = req.body;
+  if (!content) return res.status(400).json({ error: 'Missing content to inspect' });
+
+  const tempId = uuidv4();
+  const tempFile = path.join('/tmp', `${tempId}.tmp`);
+
+  try {
+    // If base64 DER, convert to Buffer
+    if (content.startsWith('data:') && content.includes('base64,')) {
+      content = Buffer.from(content.split('base64,')[1], 'base64');
+      fs.writeFileSync(tempFile, content);
+    } else {
+      fs.writeFileSync(tempFile, content.trim());
+    }
+
+    let parsed = {};
+    if (content.toString().includes('CERTIFICATE REQUEST') || type === 'csr') {
+      // Parse CSR
+      const textOut = execFileSync('openssl', ['req', '-in', tempFile, '-noout', '-text'], { stdio: 'pipe' }).toString();
+      const subjOut = execFileSync('openssl', ['req', '-in', tempFile, '-noout', '-subject'], { stdio: 'pipe' }).toString();
+      parsed = {
+        kind: 'Certificate Signing Request (CSR)',
+        subject: subjOut.trim().replace(/^subject=/, ''),
+        fullText: textOut
+      };
+    } else {
+      // Parse Certificate (supports PEM or DER)
+      let textOut;
+      try {
+        textOut = execFileSync('openssl', ['x509', '-in', tempFile, '-noout', '-text'], { stdio: 'pipe' }).toString();
+      } catch (pemErr) {
+        textOut = execFileSync('openssl', ['x509', '-in', tempFile, '-inform', 'DER', '-noout', '-text'], { stdio: 'pipe' }).toString();
+      }
+
+      // Extract subject, issuer, dates, serial, and SANs
+      const subjectMatch = textOut.match(/Subject:\s*([^\n]+)/);
+      const issuerMatch = textOut.match(/Issuer:\s*([^\n]+)/);
+      const notBeforeMatch = textOut.match(/Not Before:\s*([^\n]+)/);
+      const notAfterMatch = textOut.match(/Not After\s*:\s*([^\n]+)/);
+      const serialMatch = textOut.match(/Serial Number:\s*([^\n]+)/);
+      const sanMatch = textOut.match(/X509v3 Subject Alternative Name:[^\n]*\n\s*([^\n]+)/);
+      const isCaMatch = textOut.match(/CA:(TRUE|FALSE)/i);
+
+      parsed = {
+        kind: 'X.509 Public Certificate',
+        subject: subjectMatch ? subjectMatch[1].trim() : 'Unknown',
+        issuer: issuerMatch ? issuerMatch[1].trim() : 'Unknown',
+        serial: serialMatch ? serialMatch[1].trim() : 'Unknown',
+        validFrom: notBeforeMatch ? notBeforeMatch[1].trim() : 'Unknown',
+        validTo: notAfterMatch ? notAfterMatch[1].trim() : 'Unknown',
+        sans: sanMatch ? sanMatch[1].trim() : 'None',
+        isCA: isCaMatch ? isCaMatch[1].toUpperCase() === 'TRUE' : false,
+        fullText: textOut
+      };
+    }
+
+    try { fs.unlinkSync(tempFile); } catch (e) {}
+    res.json({ success: true, ...parsed });
+  } catch (err) {
+    try { fs.unlinkSync(tempFile); } catch (e) {}
+    res.status(400).json({ error: 'Could not parse certificate/CSR: ' + err.message });
+  }
+});
+
 app.post('/api/v1/revoke', authMiddleware, async (req, res) => {
   const { serial, reason } = req.body;
   if (!serial) return res.status(400).json({ error: 'Serial is required' });

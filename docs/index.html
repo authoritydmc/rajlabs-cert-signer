@@ -156,6 +156,7 @@
         <a onclick="showTab('tab-cas')">🏛️ Intermediate CAs</a>
         <a onclick="showTab('tab-generate')">✍️ Issue Certificate</a>
         <a onclick="showTab('tab-certs')">📜 Issued Certificates</a>
+        <a onclick="showTab('tab-viewer')">🔍 Certificate Viewer</a>
         <a onclick="showTab('tab-tokens')">🔑 API Tokens</a>
         <a onclick="showTab('tab-settings')">⚙️ PKI Defaults & Org Profile</a>
         <a onclick="showTab('tab-guide-generate')">📖 Guide: New Signer</a>
@@ -323,6 +324,73 @@
             </thead>
             <tbody id="cert-table-body"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- TAB: CERTIFICATE & CSR VIEWER -->
+      <div id="tab-viewer" class="tab-pane" style="display: none;">
+        <h1 class="section-title">Certificate & CSR Inspector</h1>
+        <p class="section-desc">Inspect, parse, and verify X.509 public certificates, CA chains, or CSR files (PEM, CRT, CER, DER format).</p>
+
+        <!-- Dropzone / File Picker Card -->
+        <div class="card" style="border: 2px dashed rgba(6, 182, 212, 0.4); text-align: center; padding: 2.5rem; background: rgba(6, 182, 212, 0.02); cursor: pointer;" onclick="document.getElementById('cert-file-input').click()" ondragover="event.preventDefault(); this.style.borderColor='var(--cyan)'" ondragleave="this.style.borderColor='rgba(6, 182, 212, 0.4)'" ondrop="handleCertDrop(event)">
+          <input type="file" id="cert-file-input" style="display: none;" onchange="handleCertFileSelect(event)" accept=".crt,.pem,.cer,.der,.csr,.txt" />
+          <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📂</div>
+          <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 0.35rem;">Click to upload or Drag & Drop certificate file</h3>
+          <p style="color: var(--text-muted); font-size: 0.85rem;">Supports PEM, CRT, CER, DER, and CSR formats</p>
+        </div>
+
+        <div class="card">
+          <label>Or Paste Certificate / CSR Text (PEM):</label>
+          <textarea id="viewer-paste-input" rows="5" placeholder="-----BEGIN CERTIFICATE-----..."></textarea>
+          <div style="display: flex; gap: 0.75rem;">
+            <button onclick="parsePastedCert()">Inspect Certificate</button>
+            <button class="btn-outline" onclick="document.getElementById('viewer-paste-input').value=''; document.getElementById('viewer-result').style.display='none';">Clear</button>
+          </div>
+        </div>
+
+        <!-- Parsed Certificate Result -->
+        <div id="viewer-result" class="card" style="display: none; border-color: var(--cyan);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+            <h3 style="font-size: 1.3rem; font-weight: 800; color: var(--cyan);" id="view-kind">X.509 Certificate</h3>
+            <span class="badge badge-active" id="view-ca-badge">End Entity</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+            <div style="background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border);">
+              <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Subject</label>
+              <div id="view-subject" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; word-break: break-all; margin-top: 0.25rem;">-</div>
+            </div>
+            <div style="background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border);">
+              <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Issuer (CA)</label>
+              <div id="view-issuer" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; word-break: break-all; margin-top: 0.25rem;">-</div>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+            <div style="background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border);">
+              <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Serial Number</label>
+              <div id="view-serial" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; margin-top: 0.25rem;">-</div>
+            </div>
+            <div style="background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border);">
+              <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Valid From</label>
+              <div id="view-from" style="font-size: 0.85rem; margin-top: 0.25rem;">-</div>
+            </div>
+            <div style="background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border);">
+              <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Valid Until</label>
+              <div id="view-to" style="font-size: 0.85rem; margin-top: 0.25rem;">-</div>
+            </div>
+          </div>
+
+          <div style="background: var(--code-bg); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border); margin-bottom: 1.5rem;">
+            <label style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Subject Alternative Names (SAN)</label>
+            <div id="view-sans" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--cyan); word-break: break-all; margin-top: 0.25rem;">-</div>
+          </div>
+
+          <details style="margin-top: 1rem;">
+            <summary style="font-size: 0.85rem; color: var(--text-muted); cursor: pointer; user-select: none;">View Complete OpenSSL Text Output</summary>
+            <pre style="margin-top: 0.75rem;"><code id="view-raw-text"></code></pre>
+          </details>
         </div>
       </div>
 
@@ -741,6 +809,83 @@ openssl x509 -req -in int-server.csr.pem -CA root-ca.cert.pem -CAkey root-ca.key
         headers: { 'Authorization': `Bearer ${authToken}` }
       });
       loadTokens();
+    }
+
+    // ------------------------------------------------------------------
+    // Certificate Viewer Handlers
+    // ------------------------------------------------------------------
+    function handleCertFileSelect(e) {
+      const file = e.target.files[0];
+      if (file) readFileAndInspect(file);
+    }
+
+    function handleCertDrop(e) {
+      e.preventDefault();
+      e.currentTarget.style.borderColor = 'rgba(6, 182, 212, 0.4)';
+      if (e.dataTransfer.files.length > 0) {
+        readFileAndInspect(e.dataTransfer.files[0]);
+      }
+    }
+
+    function readFileAndInspect(file) {
+      const reader = new FileReader();
+      if (file.name.endsWith('.der') || file.name.endsWith('.cer')) {
+        reader.readAsDataURL(file);
+      } else {
+        reader.readAsText(file);
+      }
+      reader.onload = () => {
+        sendToInspector(reader.result);
+      };
+    }
+
+    function parsePastedCert() {
+      const text = document.getElementById('viewer-paste-input').value.trim();
+      if (!text) return alert('Please paste certificate or CSR text first.');
+      sendToInspector(text);
+    }
+
+    async function sendToInspector(content) {
+      try {
+        const res = await fetch('/api/admin/parse-cert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+          body: JSON.stringify({ content })
+        });
+        const data = await res.json();
+        if (data.success) {
+          renderParsedCert(data);
+        } else {
+          alert(data.error || 'Failed to parse certificate');
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    function renderParsedCert(cert) {
+      document.getElementById('view-kind').textContent = cert.kind || 'X.509 Certificate';
+      document.getElementById('view-subject').textContent = cert.subject || '-';
+      document.getElementById('view-issuer').textContent = cert.issuer || '-';
+      document.getElementById('view-serial').textContent = cert.serial || '-';
+      document.getElementById('view-from').textContent = cert.validFrom || '-';
+      document.getElementById('view-to').textContent = cert.validTo || '-';
+      document.getElementById('view-sans').textContent = cert.sans || 'None';
+      document.getElementById('view-raw-text').textContent = cert.fullText || '';
+
+      const badge = document.getElementById('view-ca-badge');
+      if (cert.isCA) {
+        badge.textContent = 'Certificate Authority (CA)';
+        badge.style.background = 'rgba(245, 158, 11, 0.15)';
+        badge.style.color = 'var(--amber)';
+      } else {
+        badge.textContent = 'End Entity (Leaf)';
+        badge.style.background = 'rgba(16, 185, 129, 0.15)';
+        badge.style.color = 'var(--green)';
+      }
+
+      document.getElementById('viewer-result').style.display = 'block';
+      document.getElementById('viewer-result').scrollIntoView({ behavior: 'smooth' });
     }
   </script>
 </body>
