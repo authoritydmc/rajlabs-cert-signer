@@ -1,6 +1,7 @@
 #!/bin/bash
 # ==============================================================================
 # Interactive Offline Root CA & Intermediate Signer Generator (Linux / macOS)
+# Equipped with strict overwrite protection for Root and Intermediate CAs.
 # ==============================================================================
 
 set -e
@@ -12,21 +13,25 @@ CITY="${4:-San Francisco}"
 INTERMEDIATE_NAME="${5:-int-server}"
 
 echo "=========================================================="
-echo "  Zero-Trust Offline PKI Generator (OpenSSL)              "
+echo "  Zero-Trust Offline PKI Generator (Protected)            "
 echo "=========================================================="
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VAULT_DIR="$SCRIPT_DIR/offline-root-ca-vault"
 EXPORT_DIR="$SCRIPT_DIR/upload-to-web-ui"
+ARCHIVE_DIR="$VAULT_DIR/archive"
 
-mkdir -p "$VAULT_DIR" "$EXPORT_DIR"
+mkdir -p "$VAULT_DIR" "$EXPORT_DIR" "$ARCHIVE_DIR"
 
 ROOT_KEY="$VAULT_DIR/root-ca.key.pem"
 ROOT_CERT="$VAULT_DIR/root-ca.cert.pem"
 
-# 1. Root CA
-if [ -f "$ROOT_KEY" ] && [ -f "$ROOT_CERT" ]; then
-    echo "[1/3] Existing Root CA found in vault. Preserving existing Root CA."
+# -------------------------------------------------------------
+# 1. Root CA Protection
+# -------------------------------------------------------------
+if [ -f "$ROOT_KEY" ] || [ -f "$ROOT_CERT" ]; then
+    echo "[1/3] Root CA already exists in vault: $VAULT_DIR"
+    echo "      [PROTECTED] Preserving existing Root CA (Never overwritten automatically)."
 else
     echo "[1/3] Generating Air-Gapped Root CA (RSA 4096, 20 Years)..."
     openssl genrsa -out "$ROOT_KEY" 4096
@@ -35,18 +40,53 @@ else
     echo "      [OK] Root CA generated."
 fi
 
-# 2. Intermediate CA
-echo "[2/3] Generating Intermediate Signer: $INTERMEDIATE_NAME..."
+# -------------------------------------------------------------
+# 2. Intermediate CA Protection
+# -------------------------------------------------------------
 INT_KEY="$EXPORT_DIR/$INTERMEDIATE_NAME.key.pem"
 INT_CSR="$VAULT_DIR/$INTERMEDIATE_NAME.csr.pem"
 INT_CERT="$EXPORT_DIR/$INTERMEDIATE_NAME.cert.pem"
 EXT_FILE="$VAULT_DIR/int_ext.cnf"
 
+echo "[2/3] Checking Intermediate Signer: $INTERMEDIATE_NAME..."
+
+if [ -f "$INT_KEY" ] || [ -f "$INT_CERT" ]; then
+    echo "⚠️  ATTENTION: Intermediate CA '$INTERMEDIATE_NAME' already exists in $EXPORT_DIR!"
+    echo "   [S] Skip and preserve existing"
+    echo "   [A] Archive existing and create new"
+    echo "   [F] Force overwrite"
+    echo "   [Q] Quit"
+    read -p "Select choice [default: S]: " CHOICE
+    CHOICE=${CHOICE:-S}
+    
+    case "$CHOICE" in
+        [aA])
+            TS=$(date +%Y%m%d-%H%M%S)
+            [ -f "$INT_CERT" ] && mv "$INT_CERT" "$ARCHIVE_DIR/${INTERMEDIATE_NAME}-${TS}.cert.pem"
+            [ -f "$INT_KEY" ]  && mv "$INT_KEY"  "$ARCHIVE_DIR/${INTERMEDIATE_NAME}-${TS}.key.pem"
+            echo "   [OK] Existing intermediate archived to $ARCHIVE_DIR"
+            ;;
+        [fF])
+            echo "   [OVERWRITE] Overwriting $INTERMEDIATE_NAME..."
+            ;;
+        [qQ])
+            echo "Cancelled by user."
+            exit 0
+            ;;
+        *)
+            echo "   [PROTECTED] Keeping existing $INTERMEDIATE_NAME. No files modified."
+            exit 0
+            ;;
+    esac
+fi
+
 openssl genrsa -out "$INT_KEY" 4096
 openssl req -new -sha256 -key "$INT_KEY" -out "$INT_CSR" \
   -subj "/C=$COUNTRY/ST=$STATE/L=$CITY/O=$ORG_NAME/OU=$ORG_NAME Infrastructure/CN=$ORG_NAME Intermediate CA"
 
-# 3. Sign with Root CA
+# -------------------------------------------------------------
+# 3. Sign Intermediate with Root CA
+# -------------------------------------------------------------
 echo "[3/3] Signing Intermediate CA with Root CA..."
 cat << 'EOF' > "$EXT_FILE"
 basicConstraints = critical, CA:true, pathlen:0
@@ -67,9 +107,9 @@ cat << EOF > "$EXPORT_DIR/WHAT_TO_DO_NEXT.txt"
 
 Folder: upload-to-web-ui/
 
-1. root-ca.cert.pem       --> Paste into: 'Public Root CA Certificate (PEM)'
-2. $INTERMEDIATE_NAME.cert.pem   --> Paste into: 'Intermediate Certificate (PEM)'
-3. $INTERMEDIATE_NAME.key.pem    --> Paste into: 'Intermediate Private Key (PEM)'
+1. root-ca.cert.pem          --> Paste into: 'Public Root CA Certificate (PEM)'
+2. $INTERMEDIATE_NAME.cert.pem      --> Paste into: 'Intermediate Certificate (PEM)'
+3. $INTERMEDIATE_NAME.key.pem       --> Paste into: 'Intermediate Private Key (PEM)'
 
 ================================================================================
   SECURITY ADVISORY - WHAT NEVER TO UPLOAD

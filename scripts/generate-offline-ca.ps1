@@ -1,13 +1,16 @@
 <#
 .SYNOPSIS
     Interactive Offline Root CA and Intermediate Signer Generator.
-    Designed for air-gapped / offline computers or secure environments.
+    Equipped with strict override protections for both Root CA and Intermediate CAs.
 
 .DESCRIPTION
-    1. Generates an offline Root CA (stored locally in an offline-vault folder).
-    2. Generates an Intermediate CA (e.g. Server, WiFi, or IoT signer).
-    3. Signs the Intermediate CA using the Root CA with proper pathlen:0 constraints.
-    4. Clearly packages the EXACT files to upload to the Web UI vs files to KEEP OFFLINE.
+    1. NEVER overwrites Root CA if root-ca.key.pem or root-ca.cert.pem already exists (requires typing explicit confirmation 'OVERWRITE-ROOT').
+    2. NEVER overwrites existing Intermediate CAs without prompting options:
+       [S] Skip (Preserve existing)
+       [A] Archive existing and create new
+       [F] Force Overwrite
+       [Q] Quit / Abort
+    3. Clearly segregates files to upload to Web UI vs files to keep strictly offline.
 #>
 
 param(
@@ -15,7 +18,8 @@ param(
     [string]$Country = "US",
     [string]$State = "California",
     [string]$City = "San Francisco",
-    [string]$IntermediateName = "int-server"
+    [string]$IntermediateName = "int-server",
+    [switch]$ForceRootRegen = $false
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,50 +35,107 @@ if (-not $OpenSSL) {
 }
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "  Zero-Trust Offline PKI Generator (OpenSSL)              " -ForegroundColor Cyan
+Write-Host "  Zero-Trust Offline PKI Generator (Protected)            " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $baseDir = $PSScriptRoot
 $offlineVault = "$baseDir\offline-root-ca-vault"
 $exportDir = "$baseDir\upload-to-web-ui"
+$archiveDir = "$offlineVault\archive"
 
 # Ensure output directories exist
-@($offlineVault, $exportDir) | ForEach-Object {
+@($offlineVault, $exportDir, $archiveDir) | ForEach-Object {
     if (-not (Test-Path $_)) { New-Item -ItemType Directory -Path $_ -Force | Out-Null }
 }
 
 # -------------------------------------------------------------
-# STEP 1: Generate or Preserve Root CA (Kept in offline vault)
+# STEP 1: Root CA Protection & Generation
 # -------------------------------------------------------------
 $rootKey  = "$offlineVault\root-ca.key.pem"
 $rootCert = "$offlineVault\root-ca.cert.pem"
 
-if ((Test-Path $rootKey) -and (Test-Path $rootCert)) {
-    Write-Host "`n[1/3] Existing Root CA found in vault: $rootCert" -ForegroundColor Green
-    Write-Host "      Preserving existing Root CA." -ForegroundColor DarkGray
+if ((Test-Path $rootKey) -or (Test-Path $rootCert)) {
+    Write-Host "`n[1/3] Root CA already exists in vault: $offlineVault" -ForegroundColor Green
+    
+    if ($ForceRootRegen) {
+        Write-Host "`n⚠️  DANGER: You passed -ForceRootRegen!" -ForegroundColor Red
+        Write-Host "Regenerating the Root CA will INVALIDATE ALL existing intermediate CAs and end certificates!" -ForegroundColor Yellow
+        $confirm = Read-Host -Prompt "To confirm complete Root CA destruction & recreation, type 'OVERWRITE-ROOT'"
+        if ($confirm -ne "OVERWRITE-ROOT") {
+            Write-Host "Protection triggered: Aborting Root CA regeneration. Existing Root CA preserved." -ForegroundColor Green
+        } else {
+            $ts = Get-Date -Format "yyyyMMdd-HHmmss"
+            Move-Item -Path $rootKey -Destination "$archiveDir\root-ca-$ts.key.pem" -Force -ErrorAction SilentlyContinue
+            Move-Item -Path $rootCert -Destination "$archiveDir\root-ca-$ts.cert.pem" -Force -ErrorAction SilentlyContinue
+            Write-Host "Old Root CA backed up to $archiveDir" -ForegroundColor DarkGray
+
+            Write-Host "Generating NEW Air-Gapped Root CA (RSA 4096, 20 Years)..." -ForegroundColor Yellow
+            & $OpenSSL genrsa -out $rootKey 4096
+            $rootSubj = "/C=$Country/ST=$State/L=$City/O=$OrgName/OU=$OrgName Root Authority/CN=$OrgName Root CA"
+            & $OpenSSL req -new -x509 -days 7300 -sha256 -key $rootKey -out $rootCert -subj $rootSubj
+            Write-Host "      [OK] New Root CA created." -ForegroundColor Green
+        }
+    } else {
+        Write-Host "      [PROTECTED] Preserving existing Root CA (Never overwritten automatically)." -ForegroundColor Cyan
+    }
 } else {
     Write-Host "`n[1/3] Generating Air-Gapped Root CA (RSA 4096, 20 Years)..." -ForegroundColor Yellow
     & $OpenSSL genrsa -out $rootKey 4096
-    
     $rootSubj = "/C=$Country/ST=$State/L=$City/O=$OrgName/OU=$OrgName Root Authority/CN=$OrgName Root CA"
     & $OpenSSL req -new -x509 -days 7300 -sha256 -key $rootKey -out $rootCert -subj $rootSubj
     Write-Host "      [OK] Root CA generated in: $offlineVault" -ForegroundColor Green
 }
 
 # -------------------------------------------------------------
-# STEP 2: Generate Intermediate CA Signer Key & CSR
+# STEP 2: Intermediate CA Protection & Generation
 # -------------------------------------------------------------
-Write-Host "`n[2/3] Generating Intermediate CA Signer: $IntermediateName..." -ForegroundColor Yellow
-
 $intKey  = "$exportDir\$IntermediateName.key.pem"
 $intCsr  = "$offlineVault\$IntermediateName.csr.pem"
 $intCert = "$exportDir\$IntermediateName.cert.pem"
 $extFile = "$offlineVault\int_ext.cnf"
 
-# Generate 4096-bit RSA Intermediate Key
+Write-Host "`n[2/3] Checking Intermediate CA Signer: $IntermediateName..." -ForegroundColor Cyan
+
+if ((Test-Path $intKey) -or (Test-Path $intCert)) {
+    Write-Host "⚠️  ATTENTION: Intermediate CA '$IntermediateName' already exists in $exportDir!" -ForegroundColor Yellow
+    Write-Host "   Cert : $intCert"
+    Write-Host "   Key  : $intKey"
+    
+    $prompt = @"
+   What would you like to do?
+     [S] Skip (Protect and keep existing intermediate CA)
+     [A] Archive existing and create a new signed intermediate
+     [F] Force Overwrite without backup
+     [Q] Quit / Abort
+   Choice (default: S): 
+"@
+    $choice = (Read-Host -Prompt $prompt).Trim().ToUpper()
+
+    switch ($choice) {
+        "A" {
+            $ts = Get-Date -Format "yyyyMMdd-HHmmss"
+            if (Test-Path $intCert) { Move-Item -Path $intCert -Destination "$archiveDir\$IntermediateName-$ts.cert.pem" -Force }
+            if (Test-Path $intKey)  { Move-Item -Path $intKey -Destination "$archiveDir\$IntermediateName-$ts.key.pem" -Force }
+            Write-Host "   [OK] Existing intermediate archived to $archiveDir" -ForegroundColor DarkGray
+        }
+        "F" {
+            Write-Host "   [OVERWRITE] Proceeding to overwrite $IntermediateName..." -ForegroundColor Yellow
+        }
+        "Q" {
+            Write-Host "Operation cancelled by user." -ForegroundColor Red
+            return
+        }
+        Default {
+            Write-Host "   [PROTECTED] Keeping existing $IntermediateName. No files modified." -ForegroundColor Green
+            return
+        }
+    }
+}
+
+Write-Host "Generating private key for $IntermediateName (RSA 4096)..."
 & $OpenSSL genrsa -out $intKey 4096
 
-# Generate CSR
+Write-Host "Generating CSR for $IntermediateName..."
 $intSubj = "/C=$Country/ST=$State/L=$City/O=$OrgName/OU=$OrgName Infrastructure/CN=$OrgName Intermediate CA"
 & $OpenSSL req -new -sha256 -key $intKey -out $intCsr -subj $intSubj
 
@@ -105,9 +166,9 @@ $readmePath = "$exportDir\WHAT_TO_DO_NEXT.txt"
 
 Folder: upload-to-web-ui\
 
-1. root-ca.cert.pem       --> Paste into: 'Public Root CA Certificate (PEM)'
-2. $IntermediateName.cert.pem   --> Paste into: 'Intermediate Certificate (PEM)'
-3. $IntermediateName.key.pem    --> Paste into: 'Intermediate Private Key (PEM)'
+1. root-ca.cert.pem          --> Paste into: 'Public Root CA Certificate (PEM)'
+2. $IntermediateName.cert.pem      --> Paste into: 'Intermediate Certificate (PEM)'
+3. $IntermediateName.key.pem       --> Paste into: 'Intermediate Private Key (PEM)'
 
 ================================================================================
   SECURITY ADVISORY - WHAT NEVER TO UPLOAD
