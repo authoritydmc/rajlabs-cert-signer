@@ -3,6 +3,8 @@
 data/
 *.key
 *.key.pem
+offline-root-ca-vault/
+upload-to-web-ui/
 !templates/**
 
 # OS & IDE

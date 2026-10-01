@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Rajlabs PKI & Certificate Signer Dashboard</title>
+  <title>Enterprise PKI & Certificate Signer Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -74,7 +74,7 @@
   <!-- 1. LOGIN OVERLAY -->
   <div id="login-view">
     <div class="login-card">
-      <h2 style="font-weight: 800; font-size: 1.6rem; margin-bottom: 0.5rem; color: var(--cyan);">Rajlabs PKI Signer</h2>
+      <h2 style="font-weight: 800; font-size: 1.6rem; margin-bottom: 0.5rem; color: var(--cyan);">Enterprise PKI Signer</h2>
       <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">Enter administrator credentials to manage CA signers, tokens, and certificates.</p>
       
       <div id="login-error" style="color: var(--red); font-size: 0.85rem; margin-bottom: 1rem; display: none;"></div>
@@ -93,7 +93,7 @@
   <!-- 2. DASHBOARD VIEW -->
   <div id="dashboard-view">
     <aside>
-      <div class="brand">🔒 Rajlabs PKI Signer</div>
+      <div class="brand">🔒 Enterprise PKI Signer</div>
       <nav>
         <a class="active" onclick="showTab('tab-overview')">📊 Overview</a>
         <a onclick="showTab('tab-cas')">🏛️ Intermediate CAs</a>
@@ -198,9 +198,9 @@
 
         <div class="card" style="max-width: 600px;">
           <label>Primary Common Name (FQDN)</label>
-          <input type="text" id="cert-cn" placeholder="api.rajlabs.local" />
+          <input type="text" id="cert-cn" placeholder="api.Enterprise.local" />
           <label>Subject Alternative Names (Comma-separated)</label>
-          <input type="text" id="cert-sans" placeholder="api.rajlabs.local, web.rajlabs.local, localhost" />
+          <input type="text" id="cert-sans" placeholder="api.Enterprise.local, web.Enterprise.local, localhost" />
           <label>Validity (Days)</label>
           <input type="number" id="cert-days" value="90" />
           <button onclick="generateLeafCert()">Generate & Sign Certificate</button>
@@ -270,7 +270,7 @@
           <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.75rem;">Generate 4096-bit RSA key and 20-year self-signed certificate:</p>
           <pre><code>openssl genrsa -out root-ca.key.pem 4096
 openssl req -new -x509 -days 7300 -key root-ca.key.pem -out root-ca.cert.pem \
-  -subj "/C=IN/ST=Karnataka/L=Bengaluru/O=Rajlabs/CN=Rajlabs Root CA"</code></pre>
+  -subj "/C=IN/ST=Karnataka/L=Bengaluru/O=Enterprise/CN=Enterprise Root CA"</code></pre>
           <p style="color: #f59e0b; font-size: 0.85rem; margin-top: 0.5rem;">⚠️ Store <code>root-ca.key.pem</code> in a secure vault or offline USB. NEVER import it into Docker!</p>
         </div>
 
@@ -278,7 +278,7 @@ openssl req -new -x509 -days 7300 -key root-ca.key.pem -out root-ca.cert.pem \
           <h3 style="color: var(--cyan); margin-bottom: 0.5rem;">Step 2: Generate Intermediate CA Signer Key & CSR</h3>
           <pre><code>openssl genrsa -out int-server.key.pem 4096
 openssl req -new -sha256 -key int-server.key.pem -out int-server.csr.pem \
-  -subj "/C=IN/ST=Karnataka/L=Bengaluru/O=Rajlabs/CN=Rajlabs Server Intermediate CA"</code></pre>
+  -subj "/C=IN/ST=Karnataka/L=Bengaluru/O=Enterprise/CN=Enterprise Server Intermediate CA"</code></pre>
         </div>
 
         <div class="card">
@@ -302,7 +302,7 @@ openssl x509 -req -in int-server.csr.pem -CA root-ca.cert.pem -CAkey root-ca.key
   </div>
 
   <script>
-    let authToken = localStorage.getItem('rajlabs_token') || '';
+    let authToken = localStorage.getItem('Enterprise_token') || '';
 
     if (authToken) {
       checkAuth();
@@ -323,7 +323,7 @@ openssl x509 -req -in int-server.csr.pem -CA root-ca.cert.pem -CAkey root-ca.key
         const data = await res.json();
         if (data.success) {
           authToken = data.token;
-          localStorage.setItem('rajlabs_token', authToken);
+          localStorage.setItem('Enterprise_token', authToken);
           showDashboard();
         } else {
           errEl.textContent = data.error || 'Login failed';
@@ -336,7 +336,7 @@ openssl x509 -req -in int-server.csr.pem -CA root-ca.cert.pem -CAkey root-ca.key
     }
 
     function logout() {
-      localStorage.removeItem('rajlabs_token');
+      localStorage.removeItem('Enterprise_token');
       location.reload();
     }
 

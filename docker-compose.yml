@@ -1,12 +1,12 @@
 services:
   # -------------------------------------------------------------------
-  # 1. Rajlabs PKI Cert Signer (Web UI, ACME, REST API)
+  # 1. pki PKI Cert Signer (Web UI, ACME, REST API)
   # -------------------------------------------------------------------
   cert-signer:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: rajlabs-cert-signer
+    container_name: pki-cert-signer
     restart: unless-stopped
     ports:
       - "${PORT:-9000}:9000"
@@ -16,7 +16,7 @@ services:
       - ADMIN_USER=${ADMIN_USER:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-} # Leave blank to auto-generate strong password
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-} # Master key for DB-stored intermediate keys
-      - DATABASE_URL=${DATABASE_URL:-}    # Optional: postgres://user:pass@postgres:5432/rajlabs_pki
+      - DATABASE_URL=${DATABASE_URL:-}    # Optional: postgres://user:pass@postgres:5432/pki_pki
     volumes:
       # Data directory holding database, issued certs, serials, and admin_credentials.txt
       - cert_signer_data:/app/data
@@ -30,16 +30,16 @@ services:
   # -------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
-    container_name: rajlabs-pki-postgres
+    container_name: pki-pki-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-rajlabs}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rajlabs_secure_db_pass_9988!}
-      POSTGRES_DB: ${POSTGRES_DB:-rajlabs_pki}
+      POSTGRES_USER: ${POSTGRES_USER:-pki}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pki_secure_db_pass_9988!}
+      POSTGRES_DB: ${POSTGRES_DB:-pki_pki}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rajlabs}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pki}"]
       interval: 10s
       timeout: 5s
       retries: 5

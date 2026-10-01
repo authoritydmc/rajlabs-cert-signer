@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Installs the Rajlabs CA trust chain (Root CA and Intermediate CA)
+    Installs the ca CA trust chain (Root CA and Intermediate CA)
     onto a Windows machine in the appropriate system trust stores.
 
 .DESCRIPTION
@@ -26,12 +26,12 @@ if (-not $isAdmin) {
 }
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "  Rajlabs CA Trust Chain Installer (Windows)              " -ForegroundColor Cyan
+Write-Host "  ca CA Trust Chain Installer (Windows)              " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $tempDir = [System.IO.Path]::GetTempPath()
-$rootCertTemp = Join-Path $tempDir "rajlabs-root-ca.crt"
-$intCertTemp  = Join-Path $tempDir "rajlabs-int-ca.crt"
+$rootCertTemp = Join-Path $tempDir "ca-root-ca.crt"
+$intCertTemp  = Join-Path $tempDir "ca-int-ca.crt"
 
 # 1. Download certificates
 Write-Host "Downloading trust chain from $CaServerUrl..." -ForegroundColor Yellow
@@ -69,5 +69,5 @@ $intStore.Close()
 Write-Host "  [OK] Intermediate CA successfully installed." -ForegroundColor Green
 
 Write-Host "`nAll certificates in the chain are now globally trusted on this machine!" -ForegroundColor Green
-Write-Host "Any certificate issued by Rajlabs CAs will be automatically recognized." -ForegroundColor Cyan
+Write-Host "Any certificate issued by ca CAs will be automatically recognized." -ForegroundColor Cyan
 pause

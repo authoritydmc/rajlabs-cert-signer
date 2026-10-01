@@ -24,7 +24,7 @@ const CREDENTIALS_FILE = path.join(DATA_DIR, 'admin_credentials.txt');
 });
 
 // AES-256-GCM Encryption for Intermediate Private Keys in DB/Disk
-const MASTER_ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.createHash('sha256').update(process.env.ADMIN_PASSWORD || 'rajlabs-default-master-key-seed').digest();
+const MASTER_ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || crypto.createHash('sha256').update(process.env.ADMIN_PASSWORD || 'Enterprise-default-master-key-seed').digest();
 
 function encryptData(text) {
   const iv = crypto.randomBytes(12);
@@ -120,7 +120,7 @@ function initAdminAuth() {
     db.config.adminPasswordHash = bcrypt.hashSync(generatedPassword, salt);
     saveLocalDB(db);
 
-    const credNotice = `==========================================================\n RAJLABS CERTIFICATE SIGNER - ADMIN CREDENTIALS\n==========================================================\n Generated User     : ${db.config.adminUser}\n Generated Password : ${generatedPassword}\n Login UI URL       : ${BASE_URL}/login\n Saved at (Docker)  : ${CREDENTIALS_FILE}\n==========================================================\n`;
+    const credNotice = `==========================================================\n Enterprise CERTIFICATE SIGNER - ADMIN CREDENTIALS\n==========================================================\n Generated User     : ${db.config.adminUser}\n Generated Password : ${generatedPassword}\n Login UI URL       : ${BASE_URL}/login\n Saved at (Docker)  : ${CREDENTIALS_FILE}\n==========================================================\n`;
     fs.writeFileSync(CREDENTIALS_FILE, credNotice);
     console.log(credNotice);
   }
@@ -297,7 +297,7 @@ app.post('/api/admin/tokens', authMiddleware, (req, res) => {
   const newToken = {
     id: uuidv4(),
     name: name || 'API Token',
-    token: `rajlabs_${crypto.randomBytes(24).toString('hex')}`,
+    token: `cert_${crypto.randomBytes(24).toString('hex')}`,
     createdAt: new Date().toISOString()
   };
   db.apiTokens.push(newToken);
@@ -374,7 +374,7 @@ app.get('/acme/directory', (req, res) => {
     "newOrder": `${BASE_URL}/acme/new-order`,
     "revokeCert": `${BASE_URL}/acme/revoke-cert`,
     "keyChange": `${BASE_URL}/acme/key-change`,
-    "meta": { "termsOfService": `${BASE_URL}/terms`, "website": "https://rajlabs.local" }
+    "meta": { "termsOfService": `${BASE_URL}/terms`, "website": "https://Enterprise.local" }
   });
 });
 
@@ -445,7 +445,7 @@ Invoke-WebRequest -Uri '${hostUrl}/certs/root-ca.crt' -OutFile $r -UseBasicParsi
 Invoke-WebRequest -Uri '${hostUrl}/certs/intermediate-ca.crt' -OutFile $i -UseBasicParsing
 $rs = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'LocalMachine'); $rs.Open('ReadWrite'); $rs.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($r))); $rs.Close()
 $is = New-Object System.Security.Cryptography.X509Certificates.X509Store('CertificateAuthority', 'LocalMachine'); $is.Open('ReadWrite'); $is.Add((New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($i))); $is.Close()
-Write-Host '[SUCCESS] Rajlabs Trust Chain Installed!' -ForegroundColor Green
+Write-Host '[SUCCESS] Enterprise Trust Chain Installed!' -ForegroundColor Green
 `);
 });
 
@@ -463,7 +463,7 @@ if [ -d "/usr/local/share/ca-certificates" ]; then
 elif [ -d "/etc/pki/ca-trust/source/anchors" ]; then
   cp "$d/root.crt" "$d/int.crt" /etc/pki/ca-trust/source/anchors/; update-ca-trust extract
 fi
-echo "[SUCCESS] Rajlabs Trust Chain Installed!"
+echo "[SUCCESS] Enterprise Trust Chain Installed!"
 `);
 });
 
@@ -505,6 +505,6 @@ app.get('*', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`==========================================================`);
-  console.log(` Rajlabs Cert Signer Web UI running on http://0.0.0.0:${PORT}`);
+  console.log(` Enterprise Cert Signer Web UI running on http://0.0.0.0:${PORT}`);
   console.log(`==========================================================`);
 });
