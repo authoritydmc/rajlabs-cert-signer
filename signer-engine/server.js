@@ -376,6 +376,33 @@ app.delete('/api/admin/tokens/:id', authMiddleware, (req, res) => {
   res.json({ success: true });
 });
 
+// User Organization & Default PKI Profile
+app.get('/api/admin/profile', authMiddleware, (req, res) => {
+  const db = getLocalDB();
+  res.json(db.config.profile || {
+    orgName: 'MyCompany',
+    country: 'US',
+    state: 'California',
+    city: 'San Francisco',
+    defaultDays: 90,
+    domainSuffix: 'example.com'
+  });
+});
+
+app.post('/api/admin/profile', authMiddleware, (req, res) => {
+  const db = getLocalDB();
+  db.config.profile = {
+    orgName: req.body.orgName || 'MyCompany',
+    country: req.body.country || 'US',
+    state: req.body.state || 'California',
+    city: req.body.city || 'San Francisco',
+    defaultDays: parseInt(req.body.defaultDays || '90', 10),
+    domainSuffix: req.body.domainSuffix || 'example.com'
+  };
+  saveLocalDB(db);
+  res.json({ success: true, profile: db.config.profile });
+});
+
 // Issued Certificates
 app.get('/api/admin/certificates', authMiddleware, (req, res) => {
   const db = getLocalDB();

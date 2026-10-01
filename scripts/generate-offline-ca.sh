@@ -20,6 +20,27 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VAULT_DIR="$SCRIPT_DIR/offline-root-ca-vault"
 EXPORT_DIR="$SCRIPT_DIR/upload-to-web-ui"
 ARCHIVE_DIR="$VAULT_DIR/archive"
+CONFIG_FILE="$SCRIPT_DIR/pki-config.env"
+
+# Load saved user defaults if available
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+    echo "Loaded saved organization profile from: $CONFIG_FILE"
+fi
+
+ORG_NAME="${1:-${SAVED_ORG_NAME:-Enterprise}}"
+COUNTRY="${2:-${SAVED_COUNTRY:-US}}"
+STATE="${3:-${SAVED_STATE:-California}}"
+CITY="${4:-${SAVED_CITY:-San Francisco}}"
+INTERMEDIATE_NAME="${5:-int-server}"
+
+# Save for next runs
+cat << EOF > "$CONFIG_FILE"
+SAVED_ORG_NAME="$ORG_NAME"
+SAVED_COUNTRY="$COUNTRY"
+SAVED_STATE="$STATE"
+SAVED_CITY="$CITY"
+EOF
 
 mkdir -p "$VAULT_DIR" "$EXPORT_DIR" "$ARCHIVE_DIR"
 

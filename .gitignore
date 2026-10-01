@@ -5,6 +5,8 @@ data/
 *.key.pem
 offline-root-ca-vault/
 upload-to-web-ui/
+scripts/pki-config.*
+*.sqlite
 !templates/**
 
 # OS & IDE

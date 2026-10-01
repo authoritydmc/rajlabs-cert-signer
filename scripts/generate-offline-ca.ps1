@@ -42,6 +42,27 @@ $baseDir = $PSScriptRoot
 $offlineVault = "$baseDir\offline-root-ca-vault"
 $exportDir = "$baseDir\upload-to-web-ui"
 $archiveDir = "$offlineVault\archive"
+$configFile = "$baseDir\pki-config.json"
+
+# Load saved user organization config if present
+if (Test-Path $configFile) {
+    try {
+        $savedConfig = Get-Content $configFile -Raw | ConvertFrom-Json
+        if ($PSBoundParameters.ContainsKey('OrgName') -eq $false -and $savedConfig.OrgName) { $OrgName = $savedConfig.OrgName }
+        if ($PSBoundParameters.ContainsKey('Country') -eq $false -and $savedConfig.Country) { $Country = $savedConfig.Country }
+        if ($PSBoundParameters.ContainsKey('State') -eq $false -and $savedConfig.State)     { $State   = $savedConfig.State }
+        if ($PSBoundParameters.ContainsKey('City') -eq $false -and $savedConfig.City)       { $City    = $savedConfig.City }
+        Write-Host "Loaded saved organization profile from: $configFile" -ForegroundColor DarkGray
+    } catch {}
+} else {
+    # Save for future runs
+    @{
+        OrgName = $OrgName
+        Country = $Country
+        State   = $State
+        City    = $City
+    } | ConvertTo-Json | Set-Content -Path $configFile
+}
 
 # Ensure output directories exist
 @($offlineVault, $exportDir, $archiveDir) | ForEach-Object {
@@ -156,6 +177,14 @@ authorityKeyIdentifier = keyid:always,issuer
 
 # Copy public Root Certificate to export folder (needed as trust anchor)
 Copy-Item -Path $rootCert -Destination "$exportDir\root-ca.cert.pem" -Force
+
+# Save organization config for subsequent intermediate generation
+@{
+    OrgName = $OrgName
+    Country = $Country
+    State   = $State
+    City    = $City
+} | ConvertTo-Json | Set-Content -Path $configFile
 
 # Create instructions summary
 $readmePath = "$exportDir\WHAT_TO_DO_NEXT.txt"

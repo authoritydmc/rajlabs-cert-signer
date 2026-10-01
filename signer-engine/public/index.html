@@ -157,6 +157,7 @@
         <a onclick="showTab('tab-generate')">✍️ Issue Certificate</a>
         <a onclick="showTab('tab-certs')">📜 Issued Certificates</a>
         <a onclick="showTab('tab-tokens')">🔑 API Tokens</a>
+        <a onclick="showTab('tab-settings')">⚙️ PKI Defaults & Org Profile</a>
         <a onclick="showTab('tab-guide-generate')">📖 Guide: New Signer</a>
         <a onclick="showTab('tab-guide-revoke')">🚫 Guide: Revocation & CRL</a>
       </nav>
@@ -350,6 +351,48 @@
         </div>
       </div>
 
+      <!-- TAB: PKI DEFAULTS & ORG PROFILE -->
+      <div id="tab-settings" class="tab-pane" style="display: none;">
+        <h1 class="section-title">PKI Defaults & Organization Profile</h1>
+        <p class="section-desc">Save your organization defaults once. New certificate requests and helper scripts will automatically pre-populate these details so you never have to re-enter them.</p>
+
+        <div class="card" style="max-width: 650px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div>
+              <label>Organization Name</label>
+              <input type="text" id="prof-org" placeholder="MyCompany" />
+            </div>
+            <div>
+              <label>Default Domain Suffix</label>
+              <input type="text" id="prof-domain" placeholder="example.com" />
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;">
+            <div>
+              <label>Country (2-letter)</label>
+              <input type="text" id="prof-country" placeholder="US" maxlength="2" />
+            </div>
+            <div>
+              <label>State / Province</label>
+              <input type="text" id="prof-state" placeholder="California" />
+            </div>
+            <div>
+              <label>Locality / City</label>
+              <input type="text" id="prof-city" placeholder="San Francisco" />
+            </div>
+          </div>
+
+          <label>Default Leaf Certificate Validity (Days)</label>
+          <input type="number" id="prof-days" value="90" />
+
+          <div style="display: flex; gap: 0.75rem; margin-top: 0.5rem;">
+            <button onclick="saveProfile()">Save Organization Defaults</button>
+            <span id="prof-saved-msg" style="color: var(--green); font-size: 0.88rem; display: none; align-items: center;">✓ Saved successfully!</span>
+          </div>
+        </div>
+      </div>
+
       <!-- TAB: TUTORIAL - GENERATE INTERMEDIATE CA -->
       <div id="tab-guide-generate" class="tab-pane" style="display: none;">
         <h1 class="section-title">Tutorial: How to Generate an Intermediate CA Signer</h1>
@@ -516,6 +559,7 @@ openssl x509 -req -in int-server.csr.pem -CA root-ca.cert.pem -CAkey root-ca.key
       loadCAs();
       loadCerts();
       loadTokens();
+      loadProfile();
     }
 
     function showTab(tabId) {
@@ -642,6 +686,52 @@ openssl x509 -req -in int-server.csr.pem -CA root-ca.cert.pem -CAkey root-ca.key
         body: JSON.stringify({ name })
       });
       loadTokens();
+    }
+
+    async function loadProfile() {
+      try {
+        const res = await fetch('/api/admin/profile', { headers: { 'Authorization': `Bearer ${authToken}` } });
+        const p = await res.json();
+        document.getElementById('prof-org').value = p.orgName || '';
+        document.getElementById('prof-domain').value = p.domainSuffix || '';
+        document.getElementById('prof-country').value = p.country || 'US';
+        document.getElementById('prof-state').value = p.state || '';
+        document.getElementById('prof-city').value = p.city || '';
+        document.getElementById('prof-days').value = p.defaultDays || 90;
+
+        // Auto pre-populate the certificate issuance form if blank
+        const certCnEl = document.getElementById('cert-cn');
+        if (!certCnEl.value && p.domainSuffix) {
+          certCnEl.value = `app.${p.domainSuffix}`;
+          document.getElementById('cert-sans').value = `app.${p.domainSuffix}, api.${p.domainSuffix}`;
+          document.getElementById('cert-days').value = p.defaultDays || 90;
+        }
+      } catch (e) {}
+    }
+
+    async function saveProfile() {
+      const payload = {
+        orgName: document.getElementById('prof-org').value,
+        domainSuffix: document.getElementById('prof-domain').value,
+        country: document.getElementById('prof-country').value,
+        state: document.getElementById('prof-state').value,
+        city: document.getElementById('prof-city').value,
+        defaultDays: document.getElementById('prof-days').value
+      };
+
+      const res = await fetch('/api/admin/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        const msg = document.getElementById('prof-saved-msg');
+        msg.style.display = 'inline-flex';
+        setTimeout(() => msg.style.display = 'none', 3000);
+        loadProfile();
+      } else {
+        alert('Failed to save profile defaults.');
+      }
     }
 
     async function deleteToken(id) {
