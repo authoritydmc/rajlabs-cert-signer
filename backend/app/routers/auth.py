@@ -123,9 +123,8 @@ def onboarding_generate_pki(body: dict, request: Request):
         _clean(*made)
         msg = str(e)
         logger.error("pki.generate_failed", {"error": msg})
-        return err(500, "INTERNAL_ERROR", "Failed to generate PKI: " + msg,
-                   "OpenSSL binary not found on PATH. The Docker image bundles it; on bare hosts install OpenSSL first."
-                   if "ENOENT" in msg or "not found" in msg.lower() else None)
+        return err(500, "INTERNAL_ERROR", "Failed to generate PKI. Please try again or contact your administrator.",
+                   "Certificate engine temporarily unavailable. Please try again or contact your administrator.")
     finally:
         _clean(*made)  # root key shredded from disk; only the response carries it
 
@@ -150,6 +149,15 @@ def onboarding_generate_pki(body: dict, request: Request):
     store.save(db)
     audit("pki.onboarded", {"org": org, "cas": names, "keyBits": key_bits}, request)
     logger.info("pki.onboarded", {"org": org, "cas": names})
+    # Generate initial CRL for the first (active) CA so status shows "Active" immediately
+    first_entry = next((c for c in db.get("intermediateCAs", []) if c.get("isActive")), None)
+    if first_entry and first_entry.get("encryptedKeyPem"):
+        try:
+            from ..pki import regenerate_crl
+            regenerate_crl(first_entry)
+            logger.info("crl.initial_generated", {"ca": first_entry["name"]})
+        except Exception as crl_err:
+            logger.warn("crl.initial_failed", {"error": str(crl_err)[:300]})
     first = stored[0]
     return {"success": True, "rootCertPem": root_cert_pem, "rootKeyPem": root_key_pem,
             "intCertPem": first["certPem"], "intKeyPem": first["keyPem"],
@@ -171,8 +179,8 @@ def login(body: dict, request: Request):
     hashed = db.get("config", {}).get("adminPasswordHash")
     if not hashed:
         return err(503, "AUTH_NOT_INITIALIZED",
-                   "Admin credentials not initialized yet. Restart the container once.",
-                   "If ADMIN_PASSWORD is set in Coolify, restart the service so startup init can run.")
+                   "Admin credentials are not initialized yet. Please contact your administrator.",
+                   "If you manage this service, set the admin password in your hosting environment and restart the service.")
     if username == expected and verify_password(str(password), hashed):
         tok = new_session()
         audit("auth.login_ok", {"user": expected}, request)
@@ -181,7 +189,7 @@ def login(body: dict, request: Request):
     audit("auth.login_failed", {"user": username}, request)
     logger.warn("auth.login_failed", {"user": username})
     return err(401, "INVALID_CREDENTIALS", "Invalid admin username or password.",
-               'ADMIN_USER defaults to "admin". ADMIN_PASSWORD env (Coolify) overrides the stored hash on every boot.')
+               "Please verify your credentials or contact your administrator.")
 
 
 @router.get("/api/auth/me")

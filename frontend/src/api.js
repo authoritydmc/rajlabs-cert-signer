@@ -1,5 +1,5 @@
-// Base-path aware API client. Works at domain root and under Coolify
-// sub-paths (/cert-signer): server injects window.__PKI_BASE_PATH__,
+// Base-path aware API client. Works at domain root and under
+// sub-paths: server injects window.__PKI_BASE_PATH__,
 // otherwise we probe the first path segment.
 function detectBase() {
   const injected = (window.__PKI_BASE_PATH__ || "").replace(/\/$/, "");

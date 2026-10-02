@@ -156,6 +156,23 @@ def _startup():
                                  "basePath": config.BASE_PATH or "/", "dataDir": str(config.DATA_DIR),
                                  "logLevel": config.LOG_LEVEL})
     logger.info("server.ready", {"health": "/health", "status": "/api/v1/status", "ui": "/"})
+    # Bootstrap CRL for the active CA so the status endpoint never shows "missing"
+    # right after a fresh PKI generation. Runs in a thread so it doesn't block startup.
+    import threading
+    def _bootstrap_crl():
+        try:
+            from . import store as _store
+            from .pki import regenerate_crl
+            db = _store.load()
+            active = next((c for c in db.get("intermediateCAs", []) if c.get("isActive")), None)
+            if active and active.get("encryptedKeyPem"):
+                crl_f = config.CRL_DIR / f"{active['name']}.crl"
+                if not crl_f.exists():
+                    regenerate_crl(active)
+                    logger.info("crl.bootstrapped", {"ca": active["name"]})
+        except Exception as exc:
+            logger.warn("crl.bootstrap_failed", {"error": str(exc)[:300]})
+    threading.Thread(target=_bootstrap_crl, daemon=True).start()
 
 
 def run():

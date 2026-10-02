@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
 // base './' => asset URLs stay relative so the bundle works both at the
-// domain root and under a Coolify sub-path like /cert-signer.
+// domain root and under a sub-path.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   base: "./",

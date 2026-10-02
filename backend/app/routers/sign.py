@@ -123,6 +123,42 @@ async def revoke_bulk(body: dict, request: Request, _=Depends(caller)):
             "alreadyRevoked": already, "notFound": missing, "crlRegenerated": crl_ok}
 
 
+@router.delete("/api/v1/certificates/{serial}")
+@router.delete("/api/admin/certificates/{serial}")
+async def revoke_by_delete(serial: str, request: Request, _=Depends(caller)):
+    """RESTful revoke: DELETE marks the cert revoked and regenerates the CRL.
+
+    Soft-delete by design — the record is kept (status=revoked) so the
+    serial stays listed in the CRL. Reason via ?reason= query param
+    (optional JSON body {reason} also accepted). Idempotent: re-deleting
+    an already-revoked cert returns ALREADY_REVOKED.
+    """
+    reason = request.query_params.get("reason") or "unspecified"
+    try:
+        body = await request.json()
+        if isinstance(body, dict) and body.get("reason"):
+            reason = body["reason"]
+    except Exception:
+        pass
+    clean = re.sub(r"[^a-fA-F0-9]", "", str(serial or "")).lower()
+    if not clean:
+        return err(400, "VALIDATION_ERROR", "Invalid serial format.")
+    db = store.load()
+    cert, outcome = _do_revoke(db, clean, reason)
+    if outcome == "missing":
+        return err(404, "NOT_FOUND", f"Certificate serial 0x{clean} not found in database.")
+    if outcome == "already":
+        return {"success": True, "code": "ALREADY_REVOKED",
+                "message": f"Certificate 0x{clean} was already revoked."}
+    store.save(db)
+    crl_ok = _regen(db)
+    audit("cert.revoked", {"serial": clean, "reason": cert.get("revokeReason"),
+                           "crlOk": crl_ok, "via": "delete"}, request)
+    logger.warn("cert.revoked", {"serial": clean, "reason": cert.get("revokeReason")})
+    return {"success": True, "code": "REVOKED",
+            "message": f"Certificate 0x{clean} revoked and CRL updated.", "crlRegenerated": crl_ok}
+
+
 @router.get("/api/v1/ca/{name}/cert")
 def ca_cert(name: str):
     db = store.load()

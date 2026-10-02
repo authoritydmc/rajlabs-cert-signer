@@ -53,7 +53,7 @@ function Shell() {
       const { data } = await apiJson("/api/auth/setup-status");
       if (data.basePath) {
         setApiBase(data.basePath);
-        if (data.basePath) setBaseNotice(`Sub-path mode: API base is ${data.basePath} (auto-detected).`);
+        if (data.basePath) setBaseNotice(`Sub-path mode detected — connection configured automatically.`);
       }
       if (data.initialPassword) setInitPass(data.initialPassword);
       if (data.isFirstRun || window.location.pathname.endsWith("/onboarding")) setWizard(true);
@@ -78,7 +78,7 @@ function Shell() {
     return (
       <>
         <Login
-          baseNotice={baseNotice || (API_BASE ? `Sub-path mode: API base is ${API_BASE}.` : "")}
+          baseNotice={baseNotice || (API_BASE ? `Sub-path mode detected — connection configured automatically.` : "")}
           onDone={() => setAuthed(true)}
         />
         {wizard && <Wizard initialPassword={initPass} onClose={() => setWizard(false)} />}

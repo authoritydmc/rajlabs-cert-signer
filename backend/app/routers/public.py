@@ -40,7 +40,9 @@ def status(request: Request):
                 "certificates": {"total": len(certs), "revoked": revoked, "valid": len(certs) - revoked},
                 "crl": None, "acme": {"directory": f"{base}/acme/directory"},
                 "api": {"sign": "/api/v1/sign", "revoke": "/api/v1/revoke",
-                        "revokeBulk": "/api/v1/revoke-bulk", "caCert": "/api/v1/ca/:name/cert"},
+                        "revokeBulk": "/api/v1/revoke-bulk",
+                        "deleteCert": "/api/v1/certificates/:serial (DELETE, revokes + regenerates CRL)",
+                        "caCert": "/api/v1/ca/:name/cert"},
                 "database": active_database_label(), "time": health()["time"]}
     crl_f = config.CRL_DIR / f"{active['name']}.crl"
     return {"success": True, "code": "READY", "status": "ready",
@@ -51,7 +53,9 @@ def status(request: Request):
             "crl": {"name": f"{active['name']}.crl", "exists": crl_f.exists()},
             "acme": {"directory": f"{base}/acme/directory"},
             "api": {"sign": "/api/v1/sign", "revoke": "/api/v1/revoke",
-                    "revokeBulk": "/api/v1/revoke-bulk", "caCert": "/api/v1/ca/:name/cert"},
+                    "revokeBulk": "/api/v1/revoke-bulk",
+                    "deleteCert": "/api/v1/certificates/:serial (DELETE, revokes + regenerates CRL)",
+                    "caCert": "/api/v1/ca/:name/cert"},
             "database": active_database_label(), "time": health()["time"]}
 
 

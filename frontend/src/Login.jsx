@@ -31,7 +31,7 @@ export default function Login({ onDone, baseNotice }) {
         setError(errText(data, "Login failed"));
       }
     } catch (err) {
-      setError(`Cannot reach signer API at ${API_BASE}/api/auth/login — check Coolify routing / BASE_PATH.`);
+      setError(`Cannot reach the signing service — check your network connection or contact your administrator.`);
     }
     setBusy(false);
   }
@@ -50,13 +50,13 @@ export default function Login({ onDone, baseNotice }) {
         </div>
         <Field label="Admin password">
           <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} className={inp}
-            placeholder="ADMIN_PASSWORD from Coolify env" autoComplete="current-password" />
+            placeholder="Get password from your hosting dashboard" autoComplete="current-password" />
         </Field>
         <Btn color="cyan" type="submit" disabled={busy} className="mt-4 w-full py-2.5">
           {busy ? "Signing in…" : "Sign In to Dashboard"}
         </Btn>
         <p className="mt-3 text-center text-[11px] text-slate-500">
-          Behind a sub-path proxy? Uses <span className="mono">BASE_PATH</span> auto-detect — no redeploy needed.
+          Trouble signing in? Contact your administrator.
         </p>
       </form>
     </div>

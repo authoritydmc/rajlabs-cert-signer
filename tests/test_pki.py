@@ -303,6 +303,28 @@ def test_certificate_revocation_and_crl(client, auth_headers):
     assert bulk_rev.status_code == 200
     assert bulk_rev.json()["success"] is True
 
+    # DELETE endpoint revokes + regenerates CRL (RESTful alias of POST /revoke)
+    c3 = client.post("/api/admin/generate-cert", headers=auth_headers, json={
+        "commonName": "host3.rajlabs.in", "days": 90
+    }).json()
+    del1 = client.delete(f"/api/v1/certificates/{c3['serial']}?reason=keyCompromise",
+                         headers=auth_headers)
+    assert del1.status_code == 200
+    assert del1.json()["code"] == "REVOKED"
+    assert del1.json()["crlRegenerated"] is True
+
+    # DELETE is idempotent — second call reports ALREADY_REVOKED
+    del_again = client.delete(f"/api/admin/certificates/{c3['serial']}",
+                              headers=auth_headers)
+    assert del_again.status_code == 200
+    assert del_again.json()["code"] == "ALREADY_REVOKED"
+
+    # DELETE unknown serial → 404, DELETE garbage serial → 400
+    del_missing = client.delete("/api/v1/certificates/00deadbeef", headers=auth_headers)
+    assert del_missing.status_code == 404
+    del_bad = client.delete("/api/v1/certificates/!!!", headers=auth_headers)
+    assert del_bad.status_code == 400
+
     # Download CRL and verify
     crl_resp = client.get("/crl/int-server.crl")
     assert crl_resp.status_code == 200

@@ -197,7 +197,15 @@ def activate_ca(ca_id: str, request: Request, _=Depends(caller)):
     store.save(db)
     audit("ca.activated", {"id": target["id"], "name": target["name"]}, request)
     logger.info("ca.activated", {"name": target["name"]})
-    return {"success": True, "code": "ACTIVATED", "message": f"Activated {target['name']}"}
+    # Regenerate CRL for the newly active CA
+    crl_ok = False
+    try:
+        from ..pki import regenerate_crl
+        regenerate_crl(target)
+        crl_ok = True
+    except Exception as e:
+        logger.warn("crl.regen_failed_on_activate", {"error": str(e)[:300]})
+    return {"success": True, "code": "ACTIVATED", "message": f"Activated {target['name']}", "crlGenerated": crl_ok}
 
 
 @router.delete("/api/admin/intermediate-cas/{ca_id}")

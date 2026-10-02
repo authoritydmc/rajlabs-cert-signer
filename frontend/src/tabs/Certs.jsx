@@ -60,9 +60,15 @@ export default function Certs({ onChanged }) {
 
   async function revoke(serial) {
     const reason = prompt("Revocation reason (keyCompromise, cessationOfOperation, …):", "keyCompromise") || "unspecified";
-    const { data } = await apiJson("/api/v1/revoke", {
-      method: "POST", headers: authHeaders(), body: JSON.stringify({ serial, reason }),
+    let { res, data } = await apiJson(`/api/v1/certificates/${serial}?reason=${encodeURIComponent(reason)}`, {
+      method: "DELETE", headers: authHeaders(),
     });
+    if (res.status === 404 && data && data.error === "Not found.") {
+      // Older server without the DELETE route — fall back to POST revoke.
+      ({ data } = await apiJson("/api/v1/revoke", {
+        method: "POST", headers: authHeaders(), body: JSON.stringify({ serial, reason }),
+      }));
+    }
     if (data.success) toast(`Revoked 0x${serial}. CRL: ${data.crlRegenerated ? "regenerated ✅" : "pending ⚠️"}`);
     else toast(errText(data), true);
     load();

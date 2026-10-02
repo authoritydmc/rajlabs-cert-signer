@@ -96,7 +96,7 @@
 
       <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 0.6rem; padding: 1rem; margin-bottom: 1.5rem;">
         <div style="font-weight: 700; color: var(--amber); margin-bottom: 0.35rem;">🔐 Initial Generated Admin Credentials</div>
-        <p style="font-size: 0.85rem; color: #e2e8f0; margin-bottom: 0.75rem;">Your container generated a secure admin password on initial boot. Please copy and store it safely:</p>
+        <p style="font-size: 0.85rem; color: #e2e8f0; margin-bottom: 0.75rem;">A secure admin password was generated on initial setup. Please copy and store it safely:</p>
         <div style="background: var(--code-bg); padding: 0.75rem; border-radius: 0.4rem; font-family: 'JetBrains Mono', monospace; font-size: 0.95rem; color: var(--cyan); display: flex; justify-content: space-between; align-items: center;">
           <span id="onboard-pass-display">Loading...</span>
           <button style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="copyOnboardPassword()">Copy</button>
@@ -215,10 +215,10 @@
       <input type="text" id="login-user" value="admin" placeholder="admin" />
       
       <label>Admin Password</label>
-      <input type="password" id="login-pass" placeholder="Enter password from docker log" />
+      <input type="password" id="login-pass" placeholder="Get password from your hosting dashboard" />
       
       <button style="width: 100%; margin-top: 0.5rem; justify-content: center;" onclick="handleLogin()">Sign In to Dashboard</button>
-      <p style="color: #64748b; font-size: 0.75rem; margin-top: 1.25rem; text-align: center;">Credentials saved in <code>/app/data/admin_credentials.txt</code></p>
+      <p style="color: #64748b; font-size: 0.75rem; margin-top: 1.25rem; text-align: center;">Trouble signing in? Contact your administrator.</p>
     </div>
   </div>
 
@@ -595,7 +595,7 @@ openssl x509 -req -in int-server.csr.pem -CA root-ca.cert.pem -CAkey root-ca.key
         <div class="walkthrough-step">
           <div style="font-weight: 700; margin-bottom: 0.5rem;"><span class="step-number">2</span> Automated CRL Generation</div>
           <p style="color: var(--text-muted); font-size: 0.9rem;">
-            When a revocation occurs, the engine automatically runs <code>openssl ca -gencrl</code> and regenerates the CRL file.
+            When a revocation occurs, the service automatically regenerates the CRL file.
           </p>
         </div>
 
@@ -626,7 +626,7 @@ openssl x509 -req -in int-server.csr.pem -CA root-ca.cert.pem -CAkey root-ca.key
         const res = await fetch('/api/auth/setup-status');
         const data = await res.json();
         if (data.isFirstRun) {
-          document.getElementById('onboard-pass-display').textContent = data.initialPassword || 'Check docker log';
+          document.getElementById('onboard-pass-display').textContent = data.initialPassword || 'Contact your administrator';
           document.getElementById('onboarding-modal').style.display = 'flex';
           document.getElementById('login-pass').value = data.initialPassword || '';
         }
