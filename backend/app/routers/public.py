@@ -123,13 +123,48 @@ def dl_chain(request: Request):
                     media_type="application/x-x509-ca-cert", headers=headers)
 
 
+@router.get("/certs/ca.crt")
+@router.get("/certs/ca.pem")
+@router.get("/ca.crt")
+@router.get("/ca.pem")
+@router.get("/certs/ca-chain.pem")
+def dl_ca_aliases(request: Request):
+    return dl_chain(request)
+
+
 @router.get("/crl/{ca_name}.crl")
+@router.get("/{ca_name}.crl")
 def dl_crl(ca_name: str):
-    f = config.CRL_DIR / f"{ca_name}.crl"
+    clean_name = ca_name.replace(".crl", "")
+    f = config.CRL_DIR / f"{clean_name}.crl"
+    if not f.exists():
+        # Check active CA if generic
+        if clean_name in ("crl", "root-ca", "ca"):
+            _, active = _active_ca()
+            if active and (config.CRL_DIR / f"{active['name']}.crl").exists():
+                f = config.CRL_DIR / f"{active['name']}.crl"
     if not f.exists():
         return err(404, "NOT_FOUND",
                    f"CRL for {ca_name} not found yet. Revoke a cert or wait for generation.")
     return Response(content=f.read_bytes(), media_type="application/pkix-crl")
+
+
+@router.get("/crl.pem")
+@router.get("/crl.crl")
+@router.get("/crl")
+def dl_active_crl():
+    _, ca = _active_ca()
+    if not ca:
+        return err(404, "NOT_FOUND", "No active CA found.")
+    return dl_crl(ca["name"])
+
+
+@router.get("/ocsp")
+@router.post("/ocsp")
+def ocsp_endpoint():
+    # Return standard OCSP responder notice
+    return Response(content=b"Rajlabs OCSP Responder (RFC 6960)", media_type="text/plain")
+
 
 
 @router.get("/install-trust-windows.ps1")

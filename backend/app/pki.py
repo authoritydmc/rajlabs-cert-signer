@@ -72,6 +72,83 @@ def _key_ok(ca: dict) -> str:
     return key
 
 
+def build_pki_extension_urls(ca_name: str, public_base: str | None = None) -> tuple[list[str], list[str], list[str]]:
+    """Build list of CRL, OCSP, and CA Issuers URLs for X.509 extensions.
+    
+    RFC 5280 / RFC 6960 compliant.
+    HTTP is prioritized for CRL and OCSP for maximum client compatibility (avoiding HTTPS circular loop),
+    while also including HTTPS endpoints when available.
+    """
+    ca_clean = (ca_name or "int-server").strip()
+
+    # 1. CRL Distribution Points
+    crl_urls: list[str] = []
+    if config.CRL_URL_TEMPLATE:
+        crl_urls.append(config.CRL_URL_TEMPLATE.replace("{ca}", ca_clean))
+    for fb in config.CRL_FALLBACK_URLS:
+        if fb.endswith(".crl"):
+            crl_urls.append(fb.replace("{ca}", ca_clean))
+        else:
+            crl_urls.append(f"{fb}/crl/{ca_clean}.crl")
+
+    # Standard well-known endpoints for Rajlabs
+    crl_urls.extend([
+        f"http://crl.rajlabs.in/{ca_clean}.crl",
+        f"http://crl.rajlabs.in/crl/{ca_clean}.crl",
+        f"https://ca.rajlabs.in/crl/{ca_clean}.crl",
+        f"https://certs.rajlabs.in/crl/{ca_clean}.crl",
+    ])
+
+    if public_base:
+        p_base = public_base.rstrip("/")
+        crl_urls.append(f"{p_base}/crl/{ca_clean}.crl")
+
+    # 2. OCSP URLs
+    ocsp_urls: list[str] = []
+    if config.OCSP_URL_TEMPLATE:
+        ocsp_urls.append(config.OCSP_URL_TEMPLATE.replace("{ca}", ca_clean))
+    for fb in config.OCSP_FALLBACK_URLS:
+        ocsp_urls.append(fb.replace("{ca}", ca_clean))
+
+    ocsp_urls.extend([
+        "http://ca.rajlabs.in/ocsp",
+        "http://crl.rajlabs.in/ocsp",
+        "https://ca.rajlabs.in/ocsp",
+    ])
+
+    if public_base:
+        p_base = public_base.rstrip("/")
+        ocsp_urls.append(f"{p_base}/ocsp")
+
+    # 3. CA Issuers URLs
+    ca_issuers_urls: list[str] = []
+    if config.CA_ISSUERS_URL_TEMPLATE:
+        ca_issuers_urls.append(config.CA_ISSUERS_URL_TEMPLATE.replace("{ca}", ca_clean))
+    for fb in config.CA_ISSUERS_FALLBACK_URLS:
+        if "/api/v1/ca" in fb or fb.endswith(".crt") or fb.endswith(".pem"):
+            ca_issuers_urls.append(fb.replace("{ca}", ca_clean))
+        else:
+            ca_issuers_urls.append(f"{fb}/api/v1/ca/{ca_clean}/cert")
+
+    ca_issuers_urls.extend([
+        f"https://ca.rajlabs.in/api/v1/ca/{ca_clean}/cert",
+        f"https://certs.rajlabs.in/api/v1/ca/{ca_clean}/cert",
+        "https://certs.rajlabs.in/certs/ca-chain.crt",
+        "https://ca.rajlabs.in/certs/ca-chain.crt",
+    ])
+
+    if public_base:
+        p_base = public_base.rstrip("/")
+        ca_issuers_urls.append(f"{p_base}/api/v1/ca/{ca_clean}/cert")
+
+    # Deduplicate while preserving order
+    crl_urls = list(dict.fromkeys(crl_urls))
+    ocsp_urls = list(dict.fromkeys(ocsp_urls))
+    ca_issuers_urls = list(dict.fromkeys(ca_issuers_urls))
+
+    return crl_urls, ocsp_urls, ca_issuers_urls
+
+
 def sign_leaf(csr_pem: str, san_domains=None, days=90, issued_via=None,
               public_base=None, ca_hint=None) -> dict:
     san_domains = list(san_domains or [])
@@ -100,18 +177,17 @@ def sign_leaf(csr_pem: str, san_domains=None, days=90, issued_via=None,
         Path(ca_f).write_text(ca["certPem"], encoding="utf-8")
         Path(key_f).write_text(key, encoding="utf-8")
         os.chmod(key_f, 0o600)
-        bases = [b for b in [public_base or config.BASE_URL, "http://certs.rajlabs.in",
-                             "http://crl.rajlabs.in", "http://pki.rajlabs.in"] if b]
-        bases = list(dict.fromkeys(bases))
+        crl_urls, ocsp_urls, ca_issuers = build_pki_extension_urls(ca["name"], public_base)
+
         ext = [
             "basicConstraints = CA:FALSE",
             "keyUsage = digitalSignature, keyEncipherment",
             "extendedKeyUsage = serverAuth, clientAuth",
             "subjectKeyIdentifier = hash",
             "authorityKeyIdentifier = keyid,issuer",
-            "crlDistributionPoints = " + ", ".join(f"URI:{u}/crl/{ca['name']}.crl" for u in bases),
-            "authorityInfoAccess = " + ", ".join(f"OCSP;URI:{u}/ocsp" for u in bases)
-            + ", " + ", ".join(f"caIssuers;URI:{u}/api/v1/ca/{ca['name']}/cert" for u in bases),
+            "crlDistributionPoints = " + ", ".join(f"URI:{u}" for u in crl_urls),
+            "authorityInfoAccess = " + ", ".join(f"OCSP;URI:{u}" for u in ocsp_urls)
+            + ", " + ", ".join(f"caIssuers;URI:{u}" for u in ca_issuers),
         ]
         if san_domains:
             sans = "\n".join(f"DNS.{i + 1} = {d}" for i, d in enumerate(san_domains))

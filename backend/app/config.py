@@ -34,6 +34,27 @@ LOG_LEVEL = (os.getenv("LOG_LEVEL", "info") or "info").lower()
 LOG_FILE = os.getenv("LOG_FILE", "")
 CORS_ORIGIN = os.getenv("CORS_ORIGIN", "*")
 
+# Public PKI URLs & Extensions (RFC 5280 CRL Distribution Points & Authority Information Access)
+# Supports {ca} template placeholder, e.g. "https://ca.rajlabs.in/crl/{ca}.crl"
+CRL_URL_TEMPLATE = os.getenv("CRL_URL_TEMPLATE", "").strip()
+CA_ISSUERS_URL_TEMPLATE = os.getenv("CA_ISSUERS_URL_TEMPLATE", "").strip()
+OCSP_URL_TEMPLATE = os.getenv("OCSP_URL_TEMPLATE", "").strip()
+
+# Raw fallback comma-separated lists from env
+CRL_FALLBACK_URLS = [u.strip().rstrip("/") for u in os.getenv("CRL_FALLBACK_URLS", "").split(",") if u.strip()]
+OCSP_FALLBACK_URLS = [u.strip().rstrip("/") for u in os.getenv("OCSP_FALLBACK_URLS", "").split(",") if u.strip()]
+CA_ISSUERS_FALLBACK_URLS = [u.strip().rstrip("/") for u in os.getenv("CA_ISSUERS_FALLBACK_URLS", "").split(",") if u.strip()]
+
+# Default public PKI hosts for rajlabs ecosystem
+DEFAULT_PKI_HOSTS = [
+    "https://ca.rajlabs.in",
+    "https://certs.rajlabs.in",
+    "https://crl.rajlabs.in",
+    "http://crl.rajlabs.in",
+    "http://certs.rajlabs.in",
+    "https://backend.rajlabs.in/cert-signer",
+]
+
 # Purpose -> intermediate CA routing (mirrors the Node engine).
 CA_PURPOSE_MAP = {
     "server": ["int-server"], "web": ["int-server"],
@@ -44,3 +65,4 @@ CA_PURPOSE_MAP = {
     "iot": ["int-iot"], "device": ["int-iot"],
     "mqtt": ["int-iot"], "embedded": ["int-iot"],
 }
+

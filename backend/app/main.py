@@ -108,12 +108,15 @@ async def _index():
 
 @app.get("/{full_path:path}", include_in_schema=False)
 async def _spa_fallback(full_path: str):
-    if full_path.split("?")[0].split("/")[0] in ("api", "acme", "certs", "crl", "health", "docs",
-                                                 "redoc", "openapi.json", "assets", "onboarding",
-                                                 "install-trust-windows.ps1", "install-trust-linux.sh"):
+    first_seg = full_path.split("?")[0].split("/")[0]
+    if first_seg in ("api", "acme", "certs", "crl", "health", "docs", "ocsp",
+                     "redoc", "openapi.json", "assets", "onboarding",
+                     "install-trust-windows.ps1", "install-trust-linux.sh") or \
+       full_path.endswith((".crl", ".crt", ".pem", ".key", ".sh", ".ps1")):
         return JSONResponse(status_code=404, content={"success": False, "code": "NOT_FOUND",
                                                       "error": "Not found."})
     return HTMLResponse(_spa_html())
+
 
 
 _REQUIRED_PREFIXES = ("/api/auth/login", "/api/admin/tokens", "/api/admin/intermediate-cas",
