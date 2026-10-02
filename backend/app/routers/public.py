@@ -88,50 +88,296 @@ def _active_ca():
     return db, next((c for c in cas if c.get("isActive")), cas[0] if cas else None)
 
 
+def _pem_to_der(pem_str: str) -> bytes:
+    from cryptography import x509
+    from cryptography.hazmat.primitives import serialization
+    cert = x509.load_pem_x509_certificate(pem_str.encode("utf-8"))
+    return cert.public_bytes(serialization.Encoding.DER)
+
+
+def _sha256_fingerprint(pem_str: str) -> str:
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    cert = x509.load_pem_x509_certificate(pem_str.encode("utf-8"))
+    fp = cert.fingerprint(hashes.SHA256()).hex().upper()
+    return ":".join(fp[i:i+2] for i in range(0, len(fp), 2))
+
+
+def _make_p7b(chain_pem: str) -> bytes:
+    from .. import pki
+    op = uuid.uuid4().hex
+    in_f = str(pki.TMP / f"{op}-p7.pem")
+    out_f = str(pki.TMP / f"{op}-p7.p7b")
+    try:
+        from pathlib import Path
+        Path(in_f).write_text(chain_pem, encoding="utf-8")
+        pki.run("crl2pkcs7", "-nocrl", "-certfile", in_f, "-out", out_f, "-outform", "DER")
+        return Path(out_f).read_bytes()
+    finally:
+        pki._clean(in_f, out_f)
+
+
+def _make_mobileconfig(root_pem: str, org_name: str = "Enterprise PKI") -> str:
+    import base64
+    der_bytes = _pem_to_der(root_pem)
+    b64_cert = base64.b64encode(der_bytes).decode("ascii")
+    payload_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{org_name}-root-ca"))
+    profile_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{org_name}-profile"))
+
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>PayloadCertificateFileName</key>
+            <string>root-ca.cer</string>
+            <key>PayloadContent</key>
+            <data>
+{b64_cert}
+            </data>
+            <key>PayloadDescription</key>
+            <string>Installs {org_name} Root CA certificate into Trusted Root Store</string>
+            <key>PayloadDisplayName</key>
+            <string>{org_name} Root CA</string>
+            <key>PayloadIdentifier</key>
+            <string>in.rajlabs.pki.root.{payload_uuid}</string>
+            <key>PayloadType</key>
+            <string>com.apple.security.root</string>
+            <key>PayloadUUID</key>
+            <string>{payload_uuid}</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+        </dict>
+    </array>
+    <key>PayloadDescription</key>
+    <string>Configures trust for {org_name} internal services and TLS certificates.</string>
+    <key>PayloadDisplayName</key>
+    <string>{org_name} Root CA Trust Profile</string>
+    <key>PayloadIdentifier</key>
+    <string>in.rajlabs.pki.profile.{profile_uuid}</string>
+    <key>PayloadOrganization</key>
+    <string>{org_name}</string>
+    <key>PayloadRemovalDisallowed</key>
+    <false/>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadUUID</key>
+    <string>{profile_uuid}</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+</dict>
+</plist>
+"""
+
+
+# ---- Root CA Downloads ----
 @router.get("/certs/root-ca.crt")
+@router.get("/certs/root-ca.pem")
 def dl_root(request: Request):
     _, ca = _active_ca()
     if not ca or not ca.get("rootCertPem"):
         return err(404, "NOT_FOUND", "Root cert not found.")
     headers = {"Content-Type": "application/x-x509-ca-cert"}
-    if request.query_params.get("download") == "1":
+    if request.query_params.get("download") == "1" or request.url.path.endswith(".crt"):
         headers["Content-Disposition"] = 'attachment; filename="root-ca.crt"'
-    return Response(content=ca["rootCertPem"], media_type="application/x-x509-ca-cert",
-                    headers=headers)
+    return Response(content=ca["rootCertPem"], media_type="application/x-x509-ca-cert", headers=headers)
 
 
+@router.get("/certs/root-ca.der")
+@router.get("/certs/root-ca.cer")
+def dl_root_der(request: Request):
+    _, ca = _active_ca()
+    if not ca or not ca.get("rootCertPem"):
+        return err(404, "NOT_FOUND", "Root cert not found.")
+    try:
+        der = _pem_to_der(ca["rootCertPem"])
+    except Exception as e:
+        return err(500, "CONVERSION_ERROR", f"Failed to encode DER certificate: {e}")
+    ext = "cer" if request.url.path.endswith(".cer") else "der"
+    headers = {"Content-Disposition": f'attachment; filename="root-ca.{ext}"'}
+    return Response(content=der, media_type="application/pkix-cert", headers=headers)
+
+
+@router.get("/certs/root-ca.mobileconfig")
+def dl_root_mobileconfig():
+    db, ca = _active_ca()
+    if not ca or not ca.get("rootCertPem"):
+        return err(404, "NOT_FOUND", "Root cert not found.")
+    org_name = db.get("config", {}).get("profile", {}).get("orgName") or "Enterprise PKI"
+    try:
+        mc = _make_mobileconfig(ca["rootCertPem"], org_name)
+    except Exception as e:
+        return err(500, "CONVERSION_ERROR", f"Failed to generate Apple mobileconfig: {e}")
+    headers = {"Content-Disposition": 'attachment; filename="root-ca-trust.mobileconfig"'}
+    return Response(content=mc, media_type="application/x-apple-aspen-config", headers=headers)
+
+
+# ---- Intermediate CA Downloads ----
 @router.get("/certs/intermediate-ca.crt")
+@router.get("/certs/intermediate-ca.pem")
 def dl_int(request: Request):
     _, ca = _active_ca()
     if not ca or not ca.get("certPem"):
         return err(404, "NOT_FOUND", "Intermediate cert not found.")
-    headers = {}
-    if request.query_params.get("download") == "1":
+    headers = {"Content-Type": "application/x-x509-ca-cert"}
+    if request.query_params.get("download") == "1" or request.url.path.endswith(".crt"):
         headers["Content-Disposition"] = 'attachment; filename="intermediate-ca.crt"'
     return Response(content=ca["certPem"], media_type="application/x-x509-ca-cert", headers=headers)
 
 
-@router.get("/certs/ca-chain.crt")
-def dl_chain(request: Request):
+@router.get("/certs/intermediate-ca.der")
+@router.get("/certs/intermediate-ca.cer")
+def dl_int_der(request: Request):
     _, ca = _active_ca()
-    if not ca or not (ca.get("certPem") and ca.get("rootCertPem")):
-        return err(404, "NOT_FOUND", "CA Chain not available.")
-    headers = {}
+    if not ca or not ca.get("certPem"):
+        return err(404, "NOT_FOUND", "Intermediate cert not found.")
+    try:
+        der = _pem_to_der(ca["certPem"])
+    except Exception as e:
+        return err(500, "CONVERSION_ERROR", f"Failed to encode DER certificate: {e}")
+    ext = "cer" if request.url.path.endswith(".cer") else "der"
+    headers = {"Content-Disposition": f'attachment; filename="intermediate-ca.{ext}"'}
+    return Response(content=der, media_type="application/pkix-cert", headers=headers)
+
+
+# Specific CA cert downloads by name (e.g. /api/v1/ca/int-server/cert, .der, .cer)
+@router.get("/api/v1/ca/{ca_name}/cert")
+@router.get("/api/v1/ca/{ca_name}/cert.pem")
+@router.get("/api/v1/ca/{ca_name}/cert.crt")
+def dl_ca_by_name(ca_name: str, request: Request):
+    db = store.load()
+    name_clean = ca_name.strip().lower()
+    target = next((c for c in db.get("intermediateCAs", []) if c.get("name", "").lower() == name_clean), None)
+    if not target or not target.get("certPem"):
+        return err(404, "NOT_FOUND", f"Intermediate CA '{ca_name}' not found.")
+    headers = {"Content-Type": "application/x-x509-ca-cert"}
     if request.query_params.get("download") == "1":
-        headers["Content-Disposition"] = 'attachment; filename="ca-chain.crt"'
-    return Response(content=f"{ca['certPem'].strip()}\n{ca['rootCertPem'].strip()}\n",
-                    media_type="application/x-x509-ca-cert", headers=headers)
+        headers["Content-Disposition"] = f'attachment; filename="{target["name"]}.crt"'
+    return Response(content=target["certPem"], media_type="application/x-x509-ca-cert", headers=headers)
 
 
+@router.get("/api/v1/ca/{ca_name}/cert.der")
+@router.get("/api/v1/ca/{ca_name}/cert.cer")
+def dl_ca_by_name_der(ca_name: str, request: Request):
+    db = store.load()
+    name_clean = ca_name.strip().lower()
+    target = next((c for c in db.get("intermediateCAs", []) if c.get("name", "").lower() == name_clean), None)
+    if not target or not target.get("certPem"):
+        return err(404, "NOT_FOUND", f"Intermediate CA '{ca_name}' not found.")
+    try:
+        der = _pem_to_der(target["certPem"])
+    except Exception as e:
+        return err(500, "CONVERSION_ERROR", f"Failed to encode DER certificate: {e}")
+    ext = "cer" if request.url.path.endswith(".cer") else "der"
+    headers = {"Content-Disposition": f'attachment; filename="{target["name"]}.{ext}"'}
+    return Response(content=der, media_type="application/pkix-cert", headers=headers)
+
+
+# ---- Full CA Chain Downloads ----
+@router.get("/certs/ca-chain.crt")
+@router.get("/certs/ca-chain.pem")
 @router.get("/certs/ca.crt")
 @router.get("/certs/ca.pem")
 @router.get("/ca.crt")
 @router.get("/ca.pem")
-@router.get("/certs/ca-chain.pem")
-def dl_ca_aliases(request: Request):
-    return dl_chain(request)
+def dl_chain(request: Request):
+    _, ca = _active_ca()
+    if not ca or not (ca.get("certPem") and ca.get("rootCertPem")):
+        return err(404, "NOT_FOUND", "CA Chain not available.")
+    chain_pem = f"{ca['certPem'].strip()}\n{ca['rootCertPem'].strip()}\n"
+    headers = {"Content-Type": "application/x-x509-ca-cert"}
+    if request.query_params.get("download") == "1" or request.url.path.endswith(".crt") or request.url.path.endswith(".pem"):
+        headers["Content-Disposition"] = 'attachment; filename="ca-chain.crt"'
+    return Response(content=chain_pem, media_type="application/x-x509-ca-cert", headers=headers)
 
 
+@router.get("/certs/ca-chain.p7b")
+@router.get("/certs/ca-chain.p7c")
+def dl_chain_p7b(request: Request):
+    _, ca = _active_ca()
+    if not ca or not (ca.get("certPem") and ca.get("rootCertPem")):
+        return err(404, "NOT_FOUND", "CA Chain not available.")
+    chain_pem = f"{ca['certPem'].strip()}\n{ca['rootCertPem'].strip()}\n"
+    try:
+        p7b = _make_p7b(chain_pem)
+    except Exception as e:
+        return err(500, "CONVERSION_ERROR", f"Failed to generate PKCS#7 certificate chain: {e}")
+    ext = "p7c" if request.url.path.endswith(".p7c") else "p7b"
+    headers = {"Content-Disposition": f'attachment; filename="ca-chain.{ext}"'}
+    return Response(content=p7b, media_type="application/x-pkcs7-certificates", headers=headers)
+
+
+# ---- Public Trust Summary Endpoint (for unauthenticated client portal) ----
+@router.get("/api/v1/trust-summary")
+def trust_summary(request: Request):
+    from ..routers.auth import _public_base
+    base = _public_base(request)
+    db, active = _active_ca()
+    cas = db.get("intermediateCAs", []) or []
+    org_profile = db.get("config", {}).get("profile", {})
+    org_name = org_profile.get("orgName") or "Enterprise PKI"
+
+    root_info = None
+    if active and active.get("rootCertPem"):
+        try:
+            fp = _sha256_fingerprint(active["rootCertPem"])
+        except Exception:
+            fp = None
+        root_info = {
+            "fingerprintSha256": fp,
+            "downloads": {
+                "pem": f"{base}/certs/root-ca.crt",
+                "der": f"{base}/certs/root-ca.der",
+                "cer": f"{base}/certs/root-ca.cer",
+                "mobileconfig": f"{base}/certs/root-ca.mobileconfig",
+            },
+        }
+
+    ca_list = []
+    for c in cas:
+        fp_ca = None
+        if c.get("certPem"):
+            try:
+                fp_ca = _sha256_fingerprint(c["certPem"])
+            except Exception:
+                pass
+        ca_list.append({
+            "name": c.get("name"),
+            "description": c.get("description", ""),
+            "isActive": bool(c.get("isActive")),
+            "fingerprintSha256": fp_ca,
+            "downloads": {
+                "pem": f"{base}/api/v1/ca/{c.get('name')}/cert",
+                "der": f"{base}/api/v1/ca/{c.get('name')}/cert.der",
+                "cer": f"{base}/api/v1/ca/{c.get('name')}/cert.cer",
+            },
+        })
+
+    chain_info = {
+        "downloads": {
+            "pem": f"{base}/certs/ca-chain.crt",
+            "p7b": f"{base}/certs/ca-chain.p7b",
+        }
+    } if active else None
+
+    return {
+        "success": True,
+        "orgName": org_name,
+        "activeCA": active["name"] if active else None,
+        "intermediateCAsCount": len(cas),
+        "rootCA": root_info,
+        "intermediateCAs": ca_list,
+        "chain": chain_info,
+        "installers": {
+            "windows": f"irm {base}/install-trust-windows.ps1 | iex",
+            "linux": f"curl -fsSL {base}/install-trust-linux.sh | sudo bash",
+        },
+    }
+
+
+# ---- CRL Endpoints ----
 @router.get("/crl/{ca_name}.crl")
 @router.get("/{ca_name}.crl")
 def dl_crl(ca_name: str):

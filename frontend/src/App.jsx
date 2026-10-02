@@ -14,6 +14,7 @@ import Viewer from "./tabs/Viewer";
 import Tokens from "./tabs/Tokens";
 import Audit from "./tabs/Audit";
 import Settings from "./tabs/Settings";
+import TrustPortal from "./tabs/TrustPortal";
 
 const NAV = [
   ["overview", "📊 Overview"],
@@ -22,6 +23,7 @@ const NAV = [
   ["issue", "✍️ Issue Certificate"],
   ["certs", "📜 Issued Certificates"],
   ["viewer", "🔍 Cert Viewer"],
+  ["trust", "🛡️ Trust Center"],
   ["tokens", "🔑 API Tokens"],
   ["audit", "🧾 Audit Logs"],
   ["settings", "⚙️ Org Profile"],
@@ -154,6 +156,7 @@ function Shell() {
         {tab === "issue" && <Issue onChanged={refreshStatus} openWizard={() => setWizard(true)} />}
         {tab === "certs" && <Certs onChanged={refreshStatus} />}
         {tab === "viewer" && <Viewer />}
+        {tab === "trust" && <TrustPortal />}
         {tab === "tokens" && <Tokens />}
         {tab === "audit" && <Audit />}
         {tab === "settings" && <Settings />}
