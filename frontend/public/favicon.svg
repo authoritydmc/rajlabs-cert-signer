@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="100%" height="100%">
+  <defs>
+    <linearGradient id="pkiBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090d16" />
+      <stop offset="50%" stop-color="#0c2340" />
+      <stop offset="100%" stop-color="#083344" />
+    </linearGradient>
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+    <filter id="pkiGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3.5" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Squircle Base Container -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#pkiBg)" stroke="#0284c7" stroke-width="2.5" />
+
+  <!-- Certificate Parchment Sheet Silhouette -->
+  <rect x="28" y="24" width="72" height="80" rx="10" fill="#0f2942" stroke="#38bdf8" stroke-width="2.5" />
+
+  <!-- Certificate Header Lines -->
+  <line x1="40" y1="38" x2="88" y2="38" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" opacity="0.8" />
+  <line x1="40" y1="48" x2="74" y2="48" stroke="#7dd3fc" stroke-width="2.5" stroke-linecap="round" opacity="0.6" />
+  <line x1="40" y1="58" x2="84" y2="58" stroke="#7dd3fc" stroke-width="2.5" stroke-linecap="round" opacity="0.6" />
+
+  <!-- Digital Signature / Cryptographic Key & Seal Emblem -->
+  <!-- Gold Wax Authority Seal -->
+  <circle cx="76" cy="80" r="16" fill="url(#goldGrad)" stroke="#fef08a" stroke-width="2" filter="url(#pkiGlow)" />
+
+  <!-- Keyhole / Cryptographic Signature Stamp in Center of Seal -->
+  <path d="M76 72 C73.5 72 71.5 74 71.5 76.5 C71.5 78 72.5 79.2 73.8 79.8 L73 85.5 C73 86.3 73.7 87 74.5 87 H77.5 C78.3 87 79 86.3 79 85.5 L78.2 79.8 C79.5 79.2 80.5 78 80.5 76.5 C80.5 74 78.5 72 76 72 Z" 
+        fill="#451a03" stroke="#78350f" stroke-width="0.5" />
+
+  <!-- Certificate Ribbon Tail hanging from Seal -->
+  <path d="M70 94 L66 106 L74 102 L82 106 L78 94 Z" fill="#d97706" stroke="#fbbf24" stroke-width="1.5" />
+
+  <!-- Top-Right Verified CA Badge -->
+  <circle cx="98" cy="30" r="4.5" fill="#38bdf8" filter="url(#pkiGlow)" />
+</svg>

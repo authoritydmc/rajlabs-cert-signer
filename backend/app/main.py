@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config
@@ -97,6 +97,17 @@ def _spa_html() -> str:
               f"<script>window.__PKI_BASE_PATH__={_json.dumps(config.BASE_PATH)};"
               f"window.__PKI_BASE_URL__={_json.dumps(config.BASE_URL)};</script>")
     return html.replace("</head>", f"  {inject}\n</head>")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+@app.get("/favicon.svg", include_in_schema=False)
+async def _favicon():
+    for name in ("favicon.svg", "favicon.ico"):
+        p = STATIC_DIR / name
+        if p.exists():
+            mt = "image/svg+xml" if name.endswith(".svg") else "image/x-icon"
+            return FileResponse(p, media_type=mt)
+    return JSONResponse(status_code=404, content={"detail": "Favicon not found"})
 
 
 @app.get("/", include_in_schema=False)
