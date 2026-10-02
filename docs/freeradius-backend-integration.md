@@ -86,7 +86,15 @@ POST /api/admin/certificates/:serial/renew  { days }
 ```js
 await fetch(`${BASE}/api/v1/revoke`, { method: 'POST', headers,
   body: JSON.stringify({ serial: '0x…' /* hex */, reason: 'keyCompromise' }) });
-// → { success, code: 'REVOKED' | 'ALREADY_REVOKED', crlRegenerated }
+// → { success, code: 'REVOKED' | 'ALREADY_REVOKED', via: 'post', crlRegenerated }
+
+// RESTful equivalent (preferred): DELETE revokes + regenerates the CRL.
+// Only serials issued by THIS signer can be revoked — anything else → 404.
+// Every success response carries `via: 'delete'`, so check `via` to confirm
+// which path the signer took.
+await fetch(`${BASE}/api/v1/certificates/${serial}?reason=keyCompromise`,
+  { method: 'DELETE', headers });
+// → { success, code: 'REVOKED' | 'ALREADY_REVOKED', via: 'delete', crlRegenerated }
 
 await fetch(`${BASE}/api/v1/revoke-bulk`, { method: 'POST', headers,
   body: JSON.stringify({ serials: ['…', '…'], reason: 'cessationOfOperation' }) });

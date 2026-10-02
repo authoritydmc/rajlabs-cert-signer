@@ -589,7 +589,13 @@ openssl x509 -req -in int-server.csr.pem -CA root-ca.cert.pem -CAkey root-ca.key
   -d '{
     "serial": "1002",
     "reason": "keyCompromise"
-  }'</code></pre>
+  }'
+
+# RESTful equivalent (preferred) — revokes + regenerates the CRL.
+# Only serials issued by this signer can be revoked (else 404).
+# Check "via" in the response to confirm which path was taken.
+curl -X DELETE "http://<host>:9000/api/v1/certificates/1002?reason=keyCompromise" \
+  -H "x-api-key: cert_3a9f..."</code></pre>
         </div>
 
         <div class="walkthrough-step">

@@ -69,7 +69,7 @@ export default function Certs({ onChanged }) {
         method: "POST", headers: authHeaders(), body: JSON.stringify({ serial, reason }),
       }));
     }
-    if (data.success) toast(`Revoked 0x${serial}. CRL: ${data.crlRegenerated ? "regenerated ✅" : "pending ⚠️"}`);
+    if (data.success) toast(`Revoked 0x${serial} via ${(data.via || "post").toUpperCase()}. CRL: ${data.crlRegenerated ? "regenerated ✅" : "pending ⚠️"}`);
     else toast(errText(data), true);
     load();
     onChanged();

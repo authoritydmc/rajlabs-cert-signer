@@ -286,6 +286,7 @@ def test_certificate_revocation_and_crl(client, auth_headers):
     })
     assert rev1.status_code == 200
     assert rev1.json()["code"] == "REVOKED"
+    assert rev1.json()["via"] == "post"
     assert rev1.json()["crlRegenerated"] is True
 
     # Revoking already revoked certificate
@@ -311,6 +312,7 @@ def test_certificate_revocation_and_crl(client, auth_headers):
                          headers=auth_headers)
     assert del1.status_code == 200
     assert del1.json()["code"] == "REVOKED"
+    assert del1.json()["via"] == "delete"
     assert del1.json()["crlRegenerated"] is True
 
     # DELETE is idempotent — second call reports ALREADY_REVOKED
@@ -318,10 +320,15 @@ def test_certificate_revocation_and_crl(client, auth_headers):
                               headers=auth_headers)
     assert del_again.status_code == 200
     assert del_again.json()["code"] == "ALREADY_REVOKED"
+    assert del_again.json()["via"] == "delete"
 
-    # DELETE unknown serial → 404, DELETE garbage serial → 400
+    # DELETE unknown serial → 404, DELETE garbage serial → 400.
+    # Only certs issued by this signer can be revoked.
     del_missing = client.delete("/api/v1/certificates/00deadbeef", headers=auth_headers)
     assert del_missing.status_code == 404
+    assert del_missing.json()["code"] == "NOT_FOUND"
+    assert "not issued by this signer" in del_missing.json()["error"]
+    assert "crlRegenerated" not in del_missing.json()
     del_bad = client.delete("/api/v1/certificates/!!!", headers=auth_headers)
     assert del_bad.status_code == 400
 

@@ -86,13 +86,13 @@ async def revoke(body: dict, request: Request, _=Depends(caller)):
     if outcome == "missing":
         return err(404, "NOT_FOUND", f"Certificate serial 0x{clean} not found in database.")
     if outcome == "already":
-        return {"success": True, "code": "ALREADY_REVOKED",
+        return {"success": True, "code": "ALREADY_REVOKED", "via": "post",
                 "message": f"Certificate 0x{clean} was already revoked."}
     store.save(db)
     crl_ok = _regen(db)
     audit("cert.revoked", {"serial": clean, "reason": cert.get("revokeReason"), "crlOk": crl_ok}, request)
     logger.warn("cert.revoked", {"serial": clean, "reason": cert.get("revokeReason")})
-    return {"success": True, "code": "REVOKED",
+    return {"success": True, "code": "REVOKED", "via": "post",
             "message": f"Certificate 0x{clean} revoked and CRL updated.", "crlRegenerated": crl_ok}
 
 
@@ -128,10 +128,14 @@ async def revoke_bulk(body: dict, request: Request, _=Depends(caller)):
 async def revoke_by_delete(serial: str, request: Request, _=Depends(caller)):
     """RESTful revoke: DELETE marks the cert revoked and regenerates the CRL.
 
-    Soft-delete by design — the record is kept (status=revoked) so the
-    serial stays listed in the CRL. Reason via ?reason= query param
-    (optional JSON body {reason} also accepted). Idempotent: re-deleting
-    an already-revoked cert returns ALREADY_REVOKED.
+    Ownership enforced: only a serial issued by THIS signer (present in its
+    database) can be revoked — anything else returns 404 NOT_FOUND and no
+    CRL is regenerated. Soft-delete by design — the record is kept
+    (status=revoked) so the serial stays listed in the CRL. Reason via
+    ?reason= query param (optional JSON body {reason} also accepted).
+    Idempotent: re-deleting an already-revoked cert returns ALREADY_REVOKED.
+    Every success response carries "via": "delete" (POST /revoke carries
+    "via": "post") so callers can confirm which path the signer took.
     """
     reason = request.query_params.get("reason") or "unspecified"
     try:
@@ -146,16 +150,17 @@ async def revoke_by_delete(serial: str, request: Request, _=Depends(caller)):
     db = store.load()
     cert, outcome = _do_revoke(db, clean, reason)
     if outcome == "missing":
-        return err(404, "NOT_FOUND", f"Certificate serial 0x{clean} not found in database.")
+        return err(404, "NOT_FOUND",
+                   f"Certificate serial 0x{clean} was not issued by this signer.")
     if outcome == "already":
-        return {"success": True, "code": "ALREADY_REVOKED",
+        return {"success": True, "code": "ALREADY_REVOKED", "via": "delete",
                 "message": f"Certificate 0x{clean} was already revoked."}
     store.save(db)
     crl_ok = _regen(db)
     audit("cert.revoked", {"serial": clean, "reason": cert.get("revokeReason"),
                            "crlOk": crl_ok, "via": "delete"}, request)
     logger.warn("cert.revoked", {"serial": clean, "reason": cert.get("revokeReason")})
-    return {"success": True, "code": "REVOKED",
+    return {"success": True, "code": "REVOKED", "via": "delete",
             "message": f"Certificate 0x{clean} revoked and CRL updated.", "crlRegenerated": crl_ok}
 
 
