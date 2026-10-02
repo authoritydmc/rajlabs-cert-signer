@@ -149,3 +149,19 @@ def bulk_tokens(body: dict, request: Request, _=Depends(caller)):
     audit("token.bulk", {"action": action, "affected": affected}, request)
     logger.info("token.bulk", {"action": action, "affected": affected})
     return {"success": True, "action": action, "affected": affected}
+
+
+@router.get("/api/v1/tokens/verify")
+@router.post("/api/v1/tokens/verify")
+def verify_token_endpoint(request: Request, _=Depends(caller)):
+    """Verify an API token or session is valid and return token metadata and scopes."""
+    token_meta = getattr(request.state, "api_token", None) or {"id": "session", "name": "Admin Session"}
+    return {
+        "success": True,
+        "valid": True,
+        "mode": "token" if token_meta.get("id") != "session" else "session",
+        "tokenId": token_meta.get("id"),
+        "tokenName": token_meta.get("name"),
+        "time": _iso_now()
+    }
+
