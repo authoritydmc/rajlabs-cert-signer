@@ -62,10 +62,21 @@ def _json_save(data: dict) -> None:
 # --------------------------------------------------------------------------
 # SQL backend (Postgres / SQLite) — SQLAlchemy Core, portable column types
 # --------------------------------------------------------------------------
-def _sql_url() -> str | None:
-    raw = (config.DATABASE_URL or "").strip()
+def _sql_url() -> str:
+    raw = (config.DATABASE_URL or os.getenv("POSTGRES_URL") or os.getenv("POSTGRESQL_URL") or "").strip()
     if not raw:
-        return None
+        pg_host = os.getenv("POSTGRES_HOST")
+        pg_db = os.getenv("POSTGRES_DB")
+        if pg_host and pg_db:
+            user = os.getenv("POSTGRES_USER", "postgres")
+            pw = os.getenv("POSTGRES_PASSWORD", "")
+            port = os.getenv("POSTGRES_PORT", "5432")
+            raw = f"postgresql://{user}:{pw}@{pg_host}:{port}/{pg_db}"
+        else:
+            # Fallback to sqlite if postgres is not provided via environment
+            sqlite_file = os.getenv("SQLITE_PATH") or (config.DATA_DIR / "cert_signer.db")
+            raw = f"sqlite:///{sqlite_file}"
+
     if raw.startswith("postgres://"):
         raw = "postgresql+psycopg://" + raw[len("postgres://"):]
     elif raw.startswith("postgresql://") and "+" not in raw.split("://")[0]:
