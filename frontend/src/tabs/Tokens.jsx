@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiJson, authHeaders, downloadBlob, errText } from "../api";
-import { Btn, Card, Empty, Field, Modal, inp, useToast } from "../ui";
+import { Btn, Card, DaysSelector, Empty, Field, Modal, inp, useToast } from "../ui";
 
 function StatusBadge({ t }) {
   return t.status === "active"
@@ -160,10 +160,22 @@ export default function Tokens() {
                 <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
                   placeholder="FreeRADIUS backend" className={inp} autoFocus />
               </Field></div>
-              <div className="mb-3"><Field label="Expiry in days (blank = never expires)">
-                <input value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })}
-                  placeholder="e.g. 90" inputMode="numeric" className={inp} />
-              </Field></div>
+              <div className="mb-3">
+                <Field label="Token Expiration">
+                  <DaysSelector
+                    value={form.days}
+                    onChange={(d) => setForm({ ...form, days: d })}
+                    allowEmpty={true}
+                    emptyLabel="Never · No Expiration (Permanent)"
+                    presets={[
+                      { label: "30 Days · Short-term Access", value: "30" },
+                      { label: "90 Days · Quarterly Key Rotation", value: "90" },
+                      { label: "180 Days · 6 Months", value: "180" },
+                      { label: "1 Year · Annual Rotation (365d)", value: "365" },
+                    ]}
+                  />
+                </Field>
+              </div>
               <div className="mb-4">
                 <span className="text-xs font-semibold text-slate-300">Scopes</span>
                 <div className="mt-1 flex gap-4">

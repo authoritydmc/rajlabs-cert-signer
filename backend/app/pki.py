@@ -12,7 +12,25 @@ from . import config, store, vault
 from .errors import ApiError
 from .logging_util import logger
 
-OPENSSL = shutil.which("openssl") or "openssl"
+def _find_openssl() -> str:
+    found = shutil.which("openssl")
+    if found:
+        return found
+    for fallback in [
+        r"C:\Program Files\Git\usr\bin\openssl.exe",
+        r"C:\Program Files (x86)\Git\usr\bin\openssl.exe",
+        r"C:\OpenSSL-Win64\bin\openssl.exe",
+        r"C:\OpenSSL-Win32\bin\openssl.exe",
+        "/usr/bin/openssl",
+        "/usr/local/bin/openssl",
+        "/opt/homebrew/bin/openssl",
+    ]:
+        if os.path.exists(fallback):
+            return fallback
+    return "openssl"
+
+
+OPENSSL = _find_openssl()
 TMP = Path(tempfile.gettempdir())
 
 

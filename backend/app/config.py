@@ -59,10 +59,14 @@ DEFAULT_PKI_HOSTS = [
 CA_PURPOSE_MAP = {
     "server": ["int-server"], "web": ["int-server"],
     "tls": ["int-server"], "acme": ["int-server"],
+    "client": ["int-server", "int-client"], "mtls": ["int-server", "int-client"],
     "wifi": ["int-wifi"], "radius": ["int-wifi"],
     "8021x": ["int-wifi"], "802.1x": ["int-wifi"],
     "eap": ["int-wifi"], "wireless": ["int-wifi"],
     "iot": ["int-iot"], "device": ["int-iot"],
     "mqtt": ["int-iot"], "embedded": ["int-iot"],
+    "k8s": ["int-server"], "kubernetes": ["int-server"], "grpc": ["int-server"],
+    "vpn": ["int-server", "int-vpn"], "ipsec": ["int-server", "int-vpn"],
+    "codesign": ["int-server"], "signing": ["int-server"],
 }
 
