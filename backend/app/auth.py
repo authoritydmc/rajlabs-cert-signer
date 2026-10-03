@@ -73,12 +73,26 @@ def record_usage(token_id: str, cn: str | None = None):
 
 
 async def caller(request: Request):
-    """Dependency: Bearer session OR x-api-key. Sets request.state.api_token."""
+    """Dependency: Authentik SSO, Bearer session, OR x-api-key. Sets request.state.api_token."""
+    # 1. Check Authentik SSO Headers (ForwardAuth / Outpost)
+    authentik_user = request.headers.get("x-authentik-username") or request.headers.get("x-authentik-email")
+    if authentik_user:
+        request.state.api_token = None
+        return {
+            "type": "authentik",
+            "username": authentik_user,
+            "groups": request.headers.get("x-authentik-groups", "").split(","),
+            "email": request.headers.get("x-authentik-email", authentik_user)
+        }
+
+    # 2. Check Standard Bearer Session
     authz = request.headers.get("authorization", "")
     if authz.startswith("Bearer "):
         if _store.session_has(authz[7:]):
             request.state.api_token = None
             return {"type": "session"}
+
+    # 3. Check API Key
     api_key = request.headers.get("x-api-key", "")
     if api_key:
         db = store.load()
@@ -91,8 +105,9 @@ async def caller(request: Request):
             return {"type": "env-token", **request.state.api_token}
     request.state.api_token = None
     raise ApiError(401, "UNAUTHORIZED",
-                   "Unauthorized. Please login or provide a valid x-api-key token.",
-                   "Login via POST /api/auth/login, or pass a non-revoked API key in x-api-key header.")
+                   "Unauthorized. Please login via Authentik SSO, session, or provide a valid x-api-key token.",
+                   "Login via POST /api/auth/login, Authentik SSO (/auth), or pass a non-revoked API key in x-api-key header.")
+
 
 
 def new_session() -> str:
