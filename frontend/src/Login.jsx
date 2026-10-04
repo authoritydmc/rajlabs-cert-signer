@@ -42,16 +42,20 @@ export default function Login({ onDone, baseNotice }) {
     try {
       // Edge (Traefik ForwardAuth) already validated the Authentik session;
       // backend/app/auth.py maps X-authentik-* headers to an admin session.
+      // If the Authentik session expired, the edge answers this XHR with a
+      // cross-origin 302 that fetch rejects — reload so the edge can send
+      // the browser to Authentik login and back to this page.
       const res = await apiFetch("/api/auth/me");
       const data = await res.json().catch(() => ({}));
-      if (data.username || data.email || data.success) {
+      if (res.ok && (data.username || data.email || data.success)) {
         onDone();
+      } else if (res.status === 401) {
+        setError("SSO session is not an admin — use admin password login below.");
       } else {
-        setError("SSO session not found — you will be redirected to Authentik. If nothing happens, use admin password login below.");
-        window.location.href = "https://auth.rajlabs.in/application/o/authorize/";
+        window.location.reload();
       }
     } catch (err) {
-      setError("SSO check failed — use admin password login below or contact your administrator.");
+      window.location.reload();
     }
     setBusy(false);
   }
