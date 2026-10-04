@@ -72,15 +72,14 @@ export default function Login({ onDone, baseNotice }) {
           <Field label="Admin username">
             <input value={user} onChange={(e) => setUser(e.target.value)} className={inp} autoComplete="username" />
           </Field>
-        </div>
-        <Field label="Admin password">
-          <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} className={inp}
-            placeholder="Get password from your hosting dashboard" autoComplete="current-password" />
-        </Field>
-        <Btn color="slate" type="submit" disabled={busy} className="mt-4 w-full py-2.5">
-          {busy ? "Signing in…" : "Sign in with password (admin only)"}
-        </Btn>
-        </div>
+          <Field label="Admin password">
+            <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} className={inp}
+              placeholder="Get password from your hosting dashboard" autoComplete="current-password" />
+          </Field>
+          <Btn color="slate" type="submit" disabled={busy} className="mt-4 w-full py-2.5">
+            {busy ? "Signing in…" : "Sign in with password (admin only)"}
+          </Btn>
+          </div>
         </details>
         <p className="mt-3 text-center text-[11px] text-slate-500">
           Trouble signing in? Contact your administrator.
